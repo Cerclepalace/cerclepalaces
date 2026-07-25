@@ -17,6 +17,49 @@ export type ProgressCallback = (info: {
 
 export type RenderMode = "fast" | "quality";
 
+export type FontKey = "bebas" | "anton" | "montserrat" | "impact";
+
+export const FONT_OPTIONS: Record<
+  FontKey,
+  { label: string; assName: string; file: string; url: string }
+> = {
+  bebas: {
+    label: "Bebas Neue",
+    assName: "Bebas Neue",
+    file: "BebasNeue-Regular.ttf",
+    url: "/fonts/BebasNeue-Regular.ttf",
+  },
+  anton: {
+    label: "Anton",
+    assName: "Anton",
+    file: "Anton-Regular.ttf",
+    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf",
+  },
+  montserrat: {
+    label: "Montserrat Black",
+    assName: "Montserrat",
+    file: "Montserrat-Black.ttf",
+    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Black.ttf",
+  },
+  impact: {
+    label: "Impact (Oswald Bold)",
+    assName: "Oswald",
+    file: "Oswald-Bold.ttf",
+    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/static/Oswald-Bold.ttf",
+  },
+};
+
+export type SubtitlePosition = "top" | "middle" | "bottom";
+
+export type SubtitleStyle = {
+  fontKey: FontKey;
+  textColor: string; // #RRGGBB
+  outlineColor: string; // #RRGGBB
+  position: SubtitlePosition;
+};
+
+export type SegmentRange = { start: number; end: number };
+
 type RenderProfile = {
   width: number;
   height: number;
@@ -89,9 +132,40 @@ export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> 
   return loadPromise;
 }
 
-// ASS colors are &HAABBGGRR — 00 alpha = opaque
-// White #FFFFFF -> &H00FFFFFF ; Neon green #39FF14 -> BGR 14FF39 -> &H0014FF39
-function buildAssFile(cues: Cue[], durationSec: number, profile: RenderProfile): string {
+// Convert #RRGGBB -> ASS &H00BBGGRR
+function hexToAss(hex: string): string {
+  const clean = hex.replace("#", "").padStart(6, "0").slice(0, 6);
+  const r = clean.slice(0, 2);
+  const g = clean.slice(2, 4);
+  const b = clean.slice(4, 6);
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
+function alignmentFor(pos: SubtitlePosition): number {
+  // ASS \an numpad: 2=bottom-center, 5=middle-center, 8=top-center
+  if (pos === "top") return 8;
+  if (pos === "middle") return 5;
+  return 2;
+}
+
+function marginVFor(pos: SubtitlePosition, profile: RenderProfile): number {
+  if (pos === "middle") return 0;
+  // top or bottom: same visual offset from edge
+  return profile.marginV;
+}
+
+function buildAssFile(
+  cues: Cue[],
+  durationSec: number,
+  profile: RenderProfile,
+  style: SubtitleStyle,
+): string {
+  const font = FONT_OPTIONS[style.fontKey];
+  const primary = hexToAss(style.textColor);
+  const outline = hexToAss(style.outlineColor);
+  const alignment = alignmentFor(style.position);
+  const marginV = marginVFor(style.position, profile);
+
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${profile.width}
@@ -101,7 +175,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Neon,Bebas Neue,${profile.fontSize},&H00FFFFFF,&H00FFFFFF,&H0014FF39,&H0014FF39,1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},2,60,60,${profile.marginV},1
+Style: Neon,${font.assName},${profile.fontSize},${primary},${primary},${outline},${outline},1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},${alignment},60,60,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -137,15 +211,51 @@ export type Short = {
   url: string;
 };
 
+async function loadFontBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Font fetch failed: ${url} (${res.status})`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+export function computeSegments(
+  durationSec: number,
+  segmentSec: number,
+  trim: { start: number; end: number },
+  custom?: SegmentRange[],
+): SegmentRange[] {
+  if (custom && custom.length > 0) {
+    return custom
+      .map((s) => ({
+        start: Math.max(0, Math.min(durationSec, s.start)),
+        end: Math.max(0, Math.min(durationSec, s.end)),
+      }))
+      .filter((s) => s.end - s.start >= 5);
+  }
+  const from = Math.max(0, Math.min(durationSec, trim.start));
+  const to = Math.max(from, Math.min(durationSec, trim.end || durationSec));
+  const usable = to - from;
+  const total = Math.max(1, Math.floor(usable / segmentSec));
+  const out: SegmentRange[] = [];
+  for (let i = 0; i < total; i++) {
+    const start = from + i * segmentSec;
+    const end = Math.min(to, start + segmentSec);
+    if (end - start >= 10) out.push({ start, end });
+  }
+  return out;
+}
+
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
   renderMode?: RenderMode;
+  style: SubtitleStyle;
+  trim?: { start: number; end: number };
+  customSegments?: SegmentRange[];
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog, onShort } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
 
   onProgress({ phase: "Chargement du moteur vidéo" });
@@ -156,30 +266,39 @@ export async function processVideo(opts: {
 
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
-  const totalSegments = Math.max(1, Math.floor(durationSec / segmentSec));
+  const trim = opts.trim ?? { start: 0, end: durationSec };
+  const segments = computeSegments(durationSec, segmentSec, trim, opts.customSegments);
+  const totalSegments = segments.length;
 
-  // Load font once
-  const fontData = await fetchFile("/fonts/BebasNeue-Regular.ttf");
-  await ff.writeFile("/tmp/Bebas Neue.ttf", fontData.slice());
-  // libass looks in current dir by default; also expose via fontsdir
+  // Load requested font (and always keep Bebas around as fallback)
   await ff.createDir("/fonts").catch(() => {});
-  await ff.writeFile("/fonts/BebasNeue-Regular.ttf", fontData.slice());
+  const font = FONT_OPTIONS[style.fontKey];
+  onProgress({ phase: `Chargement de la police ${font.label}` });
+  const fontBytes = await loadFontBytes(font.url);
+  await ff.writeFile(`/fonts/${font.file}`, fontBytes.slice());
+  if (style.fontKey !== "bebas") {
+    try {
+      const bebasBytes = await loadFontBytes(FONT_OPTIONS.bebas.url);
+      await ff.writeFile(`/fonts/${FONT_OPTIONS.bebas.file}`, bebasBytes.slice());
+    } catch {
+      /* optional */
+    }
+  }
 
   const shorts: Short[] = [];
 
   try {
     for (let i = 0; i < totalSegments; i++) {
-      const start = i * segmentSec;
-      const dur = Math.min(segmentSec, durationSec - start);
-      if (dur < 10) break;
+      const seg = segments[i];
+      const start = seg.start;
+      const dur = seg.end - seg.start;
+      if (dur < 5) continue;
 
       const audioName = `audio_${i}.webm`;
       const assName = `subs_${i}.ass`;
       const outName = `out_${i}.mp4`;
 
       try {
-        // Extract only the tiny audio slice from the source. This avoids the old extra
-        // full-video re-encode pass that made mobile processing extremely slow.
         onProgress({
           phase: `Transcription segment ${i + 1}/${totalSegments}`,
           segmentIndex: i,
@@ -217,16 +336,17 @@ export async function processVideo(opts: {
           onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
         }
 
-        await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur, profile)));
+        await ff.writeFile(
+          assName,
+          new TextEncoder().encode(buildAssFile(cues, dur, profile, style)),
+        );
 
         onProgress({
-          phase: `Rendu rapide ${profile.width}p segment ${i + 1}/${totalSegments}`,
+          phase: `Rendu ${profile.width}p segment ${i + 1}/${totalSegments}`,
           segmentIndex: i,
           totalSegments,
         });
 
-        // Compose directly from the source segment in one pass. The background blur is
-        // calculated at a smaller size then scaled up, which is much faster on phones.
         const baseFilter = [
           "[0:v]split=2[bg][fg]",
           `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
@@ -286,7 +406,7 @@ export async function processVideo(opts: {
   }
 }
 
-async function probeDuration(file: File): Promise<number> {
+export async function probeDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
