@@ -1013,12 +1013,16 @@ function Dashboard({
   nowMs,
   busy,
   doneCount,
+  onRetry,
+  maxManualRetries,
 }: {
   metrics: Record<number, SegmentMetric>;
   runStartMs: number | null;
   nowMs: number;
   busy: boolean;
   doneCount: number;
+  onRetry: (index: number) => void | Promise<void>;
+  maxManualRetries: number;
 }) {
   const rows = Object.values(metrics).sort((a, b) => a.index - b.index);
   if (rows.length === 0) return null;
