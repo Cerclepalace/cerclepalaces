@@ -760,6 +760,49 @@ function Home() {
               </div>
             </div>
 
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
+                <span>Débit Gemini (quotas)</span>
+                <span className="text-[10px] normal-case tracking-normal text-white/40">
+                  évite les erreurs 429 sur grosses vidéos
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-widest text-white/50">
+                    Appels simultanés max
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={maxConcurrent}
+                    onChange={(e) => setMaxConcurrent(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
+                    disabled={busy}
+                    className="h-10 rounded-md border border-white/10 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#39FF14]"
+                  />
+                  <span className="text-[10px] text-white/40">1 – 16 (recommandé : 4)</span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-widest text-white/50">
+                    Quota par minute (RPM)
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={rpm}
+                    onChange={(e) => setRpm(Math.max(1, Math.min(300, Number(e.target.value) || 1)))}
+                    disabled={busy}
+                    className="h-10 rounded-md border border-white/10 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#39FF14]"
+                  />
+                  <span className="text-[10px] text-white/40">requêtes / 60 s (recommandé : 30)</span>
+                </label>
+              </div>
+            </div>
+
+
+
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
               <Button
                 onClick={() => run(false)}
