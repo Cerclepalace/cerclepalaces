@@ -189,6 +189,7 @@ function Home() {
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
           throttle: { maxConcurrent, rpm },
+          poolSize,
           onProgress: (info) => {
             setStatus(info.phase);
             if (info.segmentIndex !== undefined && info.totalSegments) {
