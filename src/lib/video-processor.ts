@@ -306,6 +306,8 @@ export async function processVideo(opts: {
     const seg = segments[i];
     const dur = seg.end - seg.start;
     const audioName = `audio_${i}.webm`;
+    const t0 = performance.now();
+    onMetric?.({ index: i, status: "transcribing" });
     try {
       await ff.exec([
         "-ss",
@@ -333,14 +335,20 @@ export async function processVideo(opts: {
       return transcribeSegment({
         data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
       })
-        .then((r) => r.cues)
+        .then((r) => {
+          const ms = performance.now() - t0;
+          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length });
+          return r.cues;
+        })
         .catch((e: unknown) => {
           onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
+          onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0 });
           return [] as Cue[];
         });
     } catch (e) {
       onLog?.(`Audio extract failed for segment ${i}: ${(e as Error).message}`);
       await ff.deleteFile(audioName).catch(() => {});
+      onMetric?.({ index: i, status: "error" });
       return [];
     }
   };
