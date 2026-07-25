@@ -964,15 +964,29 @@ function Home() {
               >
                 {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
               </Button>
-              <Button
-                type="button"
-                onClick={() => run(true)}
-                disabled={!file || busy}
-                variant="outline"
-                className="h-14 border-[#39FF14]/60 bg-transparent text-base font-bold uppercase tracking-widest text-[#39FF14] hover:bg-[#39FF14]/10 hover:text-[#39FF14] disabled:opacity-40"
-              >
-                ⚡ Aperçu 8s
-              </Button>
+              {busy ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    setStatus("Annulation…");
+                  }}
+                  className="h-14 border border-red-500/60 bg-red-500/10 text-base font-bold uppercase tracking-widest text-red-300 hover:bg-red-500/20"
+                >
+                  ⏹ Annuler
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => run(true)}
+                  disabled={!file}
+                  variant="outline"
+                  className="h-14 border-[#39FF14]/60 bg-transparent text-base font-bold uppercase tracking-widest text-[#39FF14] hover:bg-[#39FF14]/10 hover:text-[#39FF14] disabled:opacity-40"
+                >
+                  ⚡ Aperçu 8s
+                </Button>
+              )}
+
             </div>
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs text-white/40">
