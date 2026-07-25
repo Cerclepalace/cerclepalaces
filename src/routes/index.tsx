@@ -238,6 +238,7 @@ function Home() {
       manualText,
       maxConcurrent,
       rpm,
+      poolSize,
     ],
   );
 
