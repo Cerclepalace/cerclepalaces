@@ -337,11 +337,13 @@ export async function processVideo(opts: {
   }
 
   const shorts: Short[] = [];
+  const fingerprint = sourceFingerprint(file);
 
   // Pipeline: extract audio for segment i, immediately fire transcription
   // (network I/O runs in parallel with subsequent ffmpeg work), then render.
-  // Pre-fetch transcription of segment i+1 while segment i is rendering,
-  // so the Gemini round-trip is hidden behind the render CPU time.
+  // Both audio bytes and Gemini cues are cached in IndexedDB keyed on
+  // (file fingerprint + segment range) so relaunching a render skips both
+  // the FFmpeg extraction and the network round-trip.
   const prepareTranscription = async (i: number): Promise<Cue[]> => {
     const seg = segments[i];
     const dur = seg.end - seg.start;
@@ -349,42 +351,62 @@ export async function processVideo(opts: {
     const t0 = performance.now();
     onMetric?.({ index: i, status: "transcribing" });
     try {
-      // Audio extraction retry (WASM can occasionally fail on memory pressure)
-      const audioB64 = await retry(
-        `Extraction audio segment ${i + 1}`,
-        async (attempt) => {
-          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
-          await ff.exec([
-            "-ss", seg.start.toFixed(3),
-            "-i", "input.mp4",
-            "-t", dur.toFixed(3),
-            "-vn", "-ac", "1", "-ar", "16000",
-            "-c:a", "libopus", "-b:a", "16k",
-            "-y", audioName,
-          ]);
-          const audioData = (await ff.readFile(audioName)) as Uint8Array;
-          const b64 = uint8ToBase64(audioData);
-          await ff.deleteFile(audioName).catch(() => {});
-          return b64;
-        },
-        { onLog },
-      );
+      // 1) Full cue cache hit — skip both extraction and network.
+      const cachedCues = await getCachedCues(fingerprint, seg.start, seg.end);
+      if (cachedCues) {
+        onLog?.(`Cache hit (cues) segment ${i + 1}`);
+        onMetric?.({
+          index: i,
+          status: "rendering",
+          transcribeMs: performance.now() - t0,
+          cueCount: cachedCues.length,
+        });
+        return cachedCues;
+      }
 
-      // Network transcription retry (Gemini can 429 / timeout under load)
+      // 2) Audio cache hit — skip extraction, still call Gemini.
+      let audioB64 = await getCachedAudio(fingerprint, seg.start, seg.end);
+      if (audioB64) {
+        onLog?.(`Cache hit (audio) segment ${i + 1}`);
+      } else {
+        audioB64 = await retry(
+          `Extraction audio segment ${i + 1}`,
+          async (attempt) => {
+            if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+            await ff.exec([
+              "-ss", seg.start.toFixed(3),
+              "-i", "input.mp4",
+              "-t", dur.toFixed(3),
+              "-vn", "-ac", "1", "-ar", "16000",
+              "-c:a", "libopus", "-b:a", "16k",
+              "-y", audioName,
+            ]);
+            const audioData = (await ff.readFile(audioName)) as Uint8Array;
+            const b64 = uint8ToBase64(audioData);
+            await ff.deleteFile(audioName).catch(() => {});
+            return b64;
+          },
+          { onLog },
+        );
+        // Persist audio for future runs (fire-and-forget)
+        void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
+      }
+
+      // 3) Transcription with retry, then cache the cues on success.
       return retry(
         `Transcription segment ${i + 1}`,
         async (attempt) => {
           if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
           const r = await transcribeSegment({
-            data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
+            data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
           });
           const ms = performance.now() - t0;
           onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
+          void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
           return r.cues;
         },
         { onLog },
       ).catch((e: unknown) => {
-        // Non-fatal: render without subtitles rather than blocking the pipeline
         onLog?.(`Transcription abandonnée pour le segment ${i + 1} après reprises: ${(e as Error).message}`);
         onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0, lastError: (e as Error).message });
         return [] as Cue[];
