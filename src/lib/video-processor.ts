@@ -9,7 +9,10 @@ import {
   setCachedCues,
   sourceFingerprint,
 } from "./segment-cache";
+import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
 export { clearSegmentCache } from "./segment-cache";
+export { suggestedPoolSize } from "./ffmpeg-pool";
+
 
 const CORE_VERSION = "0.12.10";
 const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
