@@ -142,57 +142,69 @@ function Home() {
     ? parseManual().length
     : Math.max(1, Math.floor(usableDur / segmentSec));
 
-  const run = useCallback(async () => {
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    setShorts([]);
-    setStatus("Démarrage…");
-    try {
-      const custom = manualMode ? parseManual() : undefined;
-      const out = await processVideo({
-        file,
-        segmentSec,
-        renderMode,
-        style: { fontKey, textColor, outlineColor, position },
-        trim: { start: trimStart, end: trimEnd || duration },
-        customSegments: custom,
-        onProgress: (info) => {
-          setStatus(info.phase);
-          if (info.segmentIndex !== undefined && info.totalSegments) {
-            setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
-          }
-        },
-        onShort: (short) => {
-          setShorts((current) => [...current, short]);
-        },
-        onLog: (msg) => {
-          if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
-        },
-      });
-      setStatus(`${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`);
-    } catch (e) {
-      setError((e as Error).message);
-      setStatus("");
-    } finally {
-      setBusy(false);
-      setProgress(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    file,
-    renderMode,
-    segmentSec,
-    fontKey,
-    textColor,
-    outlineColor,
-    position,
-    trimStart,
-    trimEnd,
-    duration,
-    manualMode,
-    manualText,
-  ]);
+  const run = useCallback(
+    async (previewOnly = false) => {
+      if (!file) return;
+      setBusy(true);
+      setError(null);
+      setShorts([]);
+      setStatus(previewOnly ? "Aperçu…" : "Démarrage…");
+      try {
+        let custom = manualMode ? parseManual() : undefined;
+        if (previewOnly) {
+          const base = custom && custom.length > 0 ? custom[0].start : trimStart;
+          const end = Math.min(duration || base + 8, base + 8);
+          custom = [{ start: base, end }];
+        }
+        const out = await processVideo({
+          file,
+          segmentSec,
+          renderMode: previewOnly ? "fast" : renderMode,
+          style: { fontKey, textColor, outlineColor, position },
+          trim: { start: trimStart, end: trimEnd || duration },
+          customSegments: custom,
+          onProgress: (info) => {
+            setStatus(info.phase);
+            if (info.segmentIndex !== undefined && info.totalSegments) {
+              setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
+            }
+          },
+          onShort: (short) => {
+            setShorts((current) => [...current, short]);
+          },
+          onLog: (msg) => {
+            if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
+          },
+        });
+        setStatus(
+          previewOnly
+            ? "Aperçu prêt — valide le style avant le rendu complet"
+            : `${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`,
+        );
+      } catch (e) {
+        setError((e as Error).message);
+        setStatus("");
+      } finally {
+        setBusy(false);
+        setProgress(null);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [
+      file,
+      renderMode,
+      segmentSec,
+      fontKey,
+      textColor,
+      outlineColor,
+      position,
+      trimStart,
+      trimEnd,
+      duration,
+      manualMode,
+      manualText,
+    ],
+  );
 
   const download = (s: Short) => {
     const a = document.createElement("a");
@@ -722,18 +734,32 @@ function Home() {
               </div>
             </div>
 
-            <Button
-              onClick={run}
-              disabled={!file || busy || estimatedShorts === 0}
-              className="mt-2 h-14 w-full text-base font-bold uppercase tracking-widest disabled:opacity-40"
-              style={{
-                backgroundColor: "#39FF14",
-                color: "#050505",
-                boxShadow: busy ? "none" : "0 0 24px rgba(57,255,20,0.5)",
-              }}
-            >
-              {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
-            </Button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+              <Button
+                onClick={() => run(false)}
+                disabled={!file || busy || estimatedShorts === 0}
+                className="h-14 w-full text-base font-bold uppercase tracking-widest disabled:opacity-40"
+                style={{
+                  backgroundColor: "#39FF14",
+                  color: "#050505",
+                  boxShadow: busy ? "none" : "0 0 24px rgba(57,255,20,0.5)",
+                }}
+              >
+                {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => run(true)}
+                disabled={!file || busy}
+                variant="outline"
+                className="h-14 border-[#39FF14]/60 bg-transparent text-base font-bold uppercase tracking-widest text-[#39FF14] hover:bg-[#39FF14]/10 hover:text-[#39FF14] disabled:opacity-40"
+              >
+                ⚡ Aperçu 8s
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-white/40">
+              L'aperçu génère un extrait rapide de 8 s (720p) au début de la découpe pour valider le style des sous-titres avant le rendu complet.
+            </p>
 
             {(status || error) && (
               <div className="mt-4 rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm">
