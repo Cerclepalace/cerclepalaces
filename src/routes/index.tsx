@@ -159,6 +159,9 @@ function Home() {
       setBusy(true);
       setError(null);
       setShorts([]);
+      setMetrics({});
+      setRunStartMs(Date.now());
+      setNowMs(Date.now());
       setStatus(previewOnly ? "Aperçu…" : "Démarrage…");
       try {
         let custom = manualMode ? parseManual() : undefined;
@@ -182,6 +185,12 @@ function Home() {
           },
           onShort: (short) => {
             setShorts((current) => [...current, short]);
+          },
+          onMetric: (m) => {
+            setMetrics((prev) => {
+              const existing = prev[m.index];
+              return { ...prev, [m.index]: { ...(existing ?? {}), ...m } };
+            });
           },
           onLog: (msg) => {
             if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
