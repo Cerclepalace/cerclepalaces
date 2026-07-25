@@ -1117,33 +1117,58 @@ function Dashboard({
               <th className="px-2 py-1.5 text-right font-medium">Transcription</th>
               <th className="px-2 py-1.5 text-right font-medium">Rendu</th>
               <th className="px-2 py-1.5 text-right font-medium">Cues</th>
+              <th className="px-2 py-1.5 text-right font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.index} className="border-t border-white/5">
-                <td className="px-2 py-1.5 font-mono text-white/60">{r.index + 1}</td>
-                <td className="px-2 py-1.5">
-                  <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${statusColor[r.status]}`}
-                  >
-                    {statusLabel[r.status]}
-                  </span>
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/70">
-                  {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/70">
-                  {r.renderMs ? fmtMs(r.renderMs) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/50">
-                  {r.cueCount ?? "—"}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const manualCount = r.manualAttempts ?? 0;
+              const canRetry = r.status === "error" && manualCount < maxManualRetries && !busy;
+              const retryExhausted = r.status === "error" && manualCount >= maxManualRetries;
+              return (
+                <tr key={r.index} className="border-t border-white/5" title={r.lastError ?? undefined}>
+                  <td className="px-2 py-1.5 font-mono text-white/60">{r.index + 1}</td>
+                  <td className="px-2 py-1.5">
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${statusColor[r.status]}`}
+                    >
+                      {statusLabel[r.status]}
+                    </span>
+                    {manualCount > 0 && (
+                      <span className="ml-1 text-[10px] text-white/40">×{manualCount}</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                    {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                    {r.renderMs ? fmtMs(r.renderMs) : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/50">
+                    {r.cueCount ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    {canRetry ? (
+                      <button
+                        type="button"
+                        onClick={() => onRetry(r.index)}
+                        className="rounded border border-[#39FF14]/40 bg-[#39FF14]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#39FF14] hover:bg-[#39FF14]/20"
+                      >
+                        Relancer ({maxManualRetries - manualCount})
+                      </button>
+                    ) : retryExhausted ? (
+                      <span className="text-[10px] text-red-300/70">Épuisé</span>
+                    ) : (
+                      <span className="text-[10px] text-white/20">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
     </div>
   );
 }
