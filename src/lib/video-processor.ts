@@ -109,10 +109,10 @@ export async function processVideo(opts: {
 
   // Load font once
   const fontData = await fetchFile("/fonts/BebasNeue-Regular.ttf");
-  await ff.writeFile("/tmp/Bebas Neue.ttf", fontData);
+  await ff.writeFile("/tmp/Bebas Neue.ttf", fontData.slice());
   // libass looks in current dir by default; also expose via fontsdir
   await ff.createDir("/fonts").catch(() => {});
-  await ff.writeFile("/fonts/BebasNeue-Regular.ttf", fontData);
+  await ff.writeFile("/fonts/BebasNeue-Regular.ttf", fontData.slice());
 
   const shorts: Short[] = [];
 
