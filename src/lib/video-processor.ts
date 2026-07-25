@@ -326,13 +326,15 @@ export async function processVideo(opts: {
   onMetric?: MetricsCallback;
   throttle?: ThrottleOptions;
   poolSize?: number;
+  signal?: AbortSignal;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
 
+  throwIfAborted(signal);
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
   const trim = opts.trim ?? { start: 0, end: durationSec };
@@ -340,8 +342,10 @@ export async function processVideo(opts: {
   const totalSegments = segments.length;
   if (totalSegments === 0) return [];
 
+  throwIfAborted(signal);
   onProgress({ phase: "Chargement de la vidéo en mémoire" });
   const inputBytes = await file.arrayBuffer();
+
 
   onProgress({ phase: `Chargement des polices` });
   const fontsToLoad: Array<{ file: string; bytes: ArrayBuffer }> = [];
