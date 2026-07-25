@@ -778,9 +778,23 @@ function Home() {
                 ⚡ Aperçu 8s
               </Button>
             </div>
-            <p className="mt-2 text-xs text-white/40">
-              L'aperçu génère un extrait rapide de 8 s (720p) au début de la découpe pour valider le style des sous-titres avant le rendu complet.
-            </p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-xs text-white/40">
+                L'aperçu génère un extrait rapide de 8 s (720p) au début de la découpe pour valider le style des sous-titres avant le rendu complet. Les extractions audio et transcriptions sont mises en cache : relancer un rendu sur le même fichier saute directement au rendu.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  await clearSegmentCache();
+                  setStatus("Cache vidé (audio + transcriptions)");
+                }}
+                className="shrink-0 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-40"
+              >
+                Vider le cache
+              </button>
+            </div>
+
 
             {(status || error) && (
               <div className="mt-4 rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm">
