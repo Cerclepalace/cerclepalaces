@@ -359,6 +359,7 @@ export async function processVideo(opts: {
     } catch { /* optional */ }
   }
 
+  throwIfAborted(signal);
   onProgress({ phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})` });
   const pool = await FFmpegPool.create({
     size: desiredPoolSize,
@@ -367,6 +368,17 @@ export async function processVideo(opts: {
     onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
   });
 
+  // Kill the pool as soon as the caller aborts — this rejects every in-flight
+  // worker send with "pool terminated" and unblocks Promise.all below.
+  const onAbort = () => {
+    onLog?.("Annulation demandée — arrêt des workers");
+    pool.terminate();
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+
   for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
 
   const shorts: Short[] = [];
@@ -374,10 +386,12 @@ export async function processVideo(opts: {
   let doneCount = 0;
 
   const runOne = async (i: number) => {
+    if (signal?.aborted) return;
     const seg = segments[i];
     const dur = seg.end - seg.start;
     if (dur < 5) return;
     const t0 = performance.now();
+
 
     // ── transcription (with cache) ────────────────────────────────────────────
     onMetric?.({ index: i, status: "transcribing" });
