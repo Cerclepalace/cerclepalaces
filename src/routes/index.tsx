@@ -243,6 +243,95 @@ function Home() {
     a.remove();
   };
 
+  const MAX_MANUAL_RETRIES = 3;
+
+  const handleRetry = useCallback(
+    async (index: number) => {
+      if (!file) return;
+      const current = metrics[index];
+      const manualCount = current?.manualAttempts ?? 0;
+      if (manualCount >= MAX_MANUAL_RETRIES) return;
+
+      const custom = manualMode ? parseManual() : undefined;
+      const segments = computeSegments(
+        duration,
+        segmentSec,
+        { start: trimStart, end: trimEnd || duration },
+        custom,
+      );
+      const seg = segments[index];
+      if (!seg) return;
+
+      // Immediately reflect the manual retry attempt count.
+      setMetrics((prev) => ({
+        ...prev,
+        [index]: {
+          ...(prev[index] ?? { index, status: "pending" }),
+          status: "retrying",
+          manualAttempts: manualCount + 1,
+          lastError: undefined,
+        },
+      }));
+
+      try {
+        const short = await retrySegment({
+          file,
+          index,
+          segment: seg,
+          renderMode,
+          style: { fontKey, textColor, outlineColor, position },
+          throttle: { maxConcurrent, rpm },
+          onMetric: (m) => {
+            setMetrics((prev) => {
+              const existing = prev[m.index];
+              return {
+                ...prev,
+                [m.index]: { ...(existing ?? {}), ...m, manualAttempts: manualCount + 1 },
+              };
+            });
+          },
+          onLog: (msg) => {
+            if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg-retry]", msg);
+          },
+        });
+        if (short) {
+          setShorts((cur) => {
+            const filtered = cur.filter((s) => s.index !== short.index);
+            return [...filtered, short].sort((a, b) => a.index - b.index);
+          });
+        }
+      } catch (e) {
+        setMetrics((prev) => ({
+          ...prev,
+          [index]: {
+            ...(prev[index] ?? { index, status: "error" }),
+            status: "error",
+            lastError: (e as Error).message,
+            manualAttempts: manualCount + 1,
+          },
+        }));
+      }
+    },
+    [
+      file,
+      metrics,
+      duration,
+      segmentSec,
+      trimStart,
+      trimEnd,
+      manualMode,
+      manualText,
+      renderMode,
+      fontKey,
+      textColor,
+      outlineColor,
+      position,
+      maxConcurrent,
+      rpm,
+    ],
+  );
+
+
   const fontPreviewFamily: Record<FontKey, string> = {
     bebas: "Bebas Neue, Impact, sans-serif",
     anton: "Anton, Impact, sans-serif",
