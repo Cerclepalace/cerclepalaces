@@ -356,6 +356,9 @@ export async function processVideo(opts: {
   try {
     if (totalSegments === 0) return shorts;
 
+    // Emit initial pending metric for every segment so the dashboard shows all rows.
+    for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
+
     // Parallelism: keep up to N transcriptions in flight ahead of the renderer.
     // Each Gemini call is independent; running several in parallel hides the
     // network round-trip even when rendering is faster than one call.
