@@ -341,46 +341,50 @@ export async function processVideo(opts: {
     const t0 = performance.now();
     onMetric?.({ index: i, status: "transcribing" });
     try {
-      await ff.exec([
-        "-ss",
-        seg.start.toFixed(3),
-        "-i",
-        "input.mp4",
-        "-t",
-        dur.toFixed(3),
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-c:a",
-        "libopus",
-        "-b:a",
-        "16k",
-        "-y",
-        audioName,
-      ]);
-      const audioData = (await ff.readFile(audioName)) as Uint8Array;
-      const audioB64 = uint8ToBase64(audioData);
-      await ff.deleteFile(audioName).catch(() => {});
-      // Fire network call; return the promise so caller can await later.
-      return transcribeSegment({
-        data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
-      })
-        .then((r) => {
+      // Audio extraction retry (WASM can occasionally fail on memory pressure)
+      const audioB64 = await retry(
+        `Extraction audio segment ${i + 1}`,
+        async (attempt) => {
+          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          await ff.exec([
+            "-ss", seg.start.toFixed(3),
+            "-i", "input.mp4",
+            "-t", dur.toFixed(3),
+            "-vn", "-ac", "1", "-ar", "16000",
+            "-c:a", "libopus", "-b:a", "16k",
+            "-y", audioName,
+          ]);
+          const audioData = (await ff.readFile(audioName)) as Uint8Array;
+          const b64 = uint8ToBase64(audioData);
+          await ff.deleteFile(audioName).catch(() => {});
+          return b64;
+        },
+        { onLog },
+      );
+
+      // Network transcription retry (Gemini can 429 / timeout under load)
+      return retry(
+        `Transcription segment ${i + 1}`,
+        async (attempt) => {
+          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          const r = await transcribeSegment({
+            data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
+          });
           const ms = performance.now() - t0;
-          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length });
+          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
           return r.cues;
-        })
-        .catch((e: unknown) => {
-          onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
-          onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0 });
-          return [] as Cue[];
-        });
+        },
+        { onLog },
+      ).catch((e: unknown) => {
+        // Non-fatal: render without subtitles rather than blocking the pipeline
+        onLog?.(`Transcription abandonnée pour le segment ${i + 1} après reprises: ${(e as Error).message}`);
+        onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0, lastError: (e as Error).message });
+        return [] as Cue[];
+      });
     } catch (e) {
-      onLog?.(`Audio extract failed for segment ${i}: ${(e as Error).message}`);
+      onLog?.(`Extraction audio abandonnée pour segment ${i + 1}: ${(e as Error).message}`);
       await ff.deleteFile(audioName).catch(() => {});
-      onMetric?.({ index: i, status: "error" });
+      onMetric?.({ index: i, status: "rendering", cueCount: 0, lastError: (e as Error).message });
       return [];
     }
   };
