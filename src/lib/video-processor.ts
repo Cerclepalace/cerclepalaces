@@ -1,6 +1,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
+import { geminiThrottle, type ThrottleOptions } from "./gemini-throttle";
 import {
   getCachedAudio,
   setCachedAudio,
