@@ -260,6 +260,7 @@ export type SegmentMetric = {
   renderMs?: number;
   cueCount?: number;
   attempts?: number;
+  manualAttempts?: number;
   lastError?: string;
 };
 
