@@ -81,6 +81,12 @@ function Home() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
+  const [poolSize, setPoolSize] = useState(() => {
+    if (typeof navigator === "undefined") return 2;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile) return 1;
+    return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Live clock while busy so throughput/ETA update in real time
