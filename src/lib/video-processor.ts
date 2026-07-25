@@ -415,7 +415,8 @@ export async function processVideo(opts: {
               );
               return r.audioBase64;
             },
-            { onLog },
+            { onLog, signal },
+
           );
           void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
         }
