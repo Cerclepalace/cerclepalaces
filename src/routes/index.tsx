@@ -898,6 +898,7 @@ function Dashboard({
     pending: "bg-white/10 text-white/40",
     transcribing: "bg-blue-500/20 text-blue-300",
     rendering: "bg-yellow-500/20 text-yellow-300",
+    retrying: "bg-orange-500/20 text-orange-300",
     done: "bg-[#39FF14]/20 text-[#39FF14]",
     error: "bg-red-500/20 text-red-300",
   };
@@ -905,6 +906,7 @@ function Dashboard({
     pending: "En attente",
     transcribing: "Transcription",
     rendering: "Rendu",
+    retrying: "Reprise…",
     done: "Prêt",
     error: "Erreur",
   };
