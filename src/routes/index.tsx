@@ -142,57 +142,69 @@ function Home() {
     ? parseManual().length
     : Math.max(1, Math.floor(usableDur / segmentSec));
 
-  const run = useCallback(async () => {
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    setShorts([]);
-    setStatus("Démarrage…");
-    try {
-      const custom = manualMode ? parseManual() : undefined;
-      const out = await processVideo({
-        file,
-        segmentSec,
-        renderMode,
-        style: { fontKey, textColor, outlineColor, position },
-        trim: { start: trimStart, end: trimEnd || duration },
-        customSegments: custom,
-        onProgress: (info) => {
-          setStatus(info.phase);
-          if (info.segmentIndex !== undefined && info.totalSegments) {
-            setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
-          }
-        },
-        onShort: (short) => {
-          setShorts((current) => [...current, short]);
-        },
-        onLog: (msg) => {
-          if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
-        },
-      });
-      setStatus(`${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`);
-    } catch (e) {
-      setError((e as Error).message);
-      setStatus("");
-    } finally {
-      setBusy(false);
-      setProgress(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    file,
-    renderMode,
-    segmentSec,
-    fontKey,
-    textColor,
-    outlineColor,
-    position,
-    trimStart,
-    trimEnd,
-    duration,
-    manualMode,
-    manualText,
-  ]);
+  const run = useCallback(
+    async (previewOnly = false) => {
+      if (!file) return;
+      setBusy(true);
+      setError(null);
+      setShorts([]);
+      setStatus(previewOnly ? "Aperçu…" : "Démarrage…");
+      try {
+        let custom = manualMode ? parseManual() : undefined;
+        if (previewOnly) {
+          const base = custom && custom.length > 0 ? custom[0].start : trimStart;
+          const end = Math.min(duration || base + 8, base + 8);
+          custom = [{ start: base, end }];
+        }
+        const out = await processVideo({
+          file,
+          segmentSec,
+          renderMode: previewOnly ? "fast" : renderMode,
+          style: { fontKey, textColor, outlineColor, position },
+          trim: { start: trimStart, end: trimEnd || duration },
+          customSegments: custom,
+          onProgress: (info) => {
+            setStatus(info.phase);
+            if (info.segmentIndex !== undefined && info.totalSegments) {
+              setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
+            }
+          },
+          onShort: (short) => {
+            setShorts((current) => [...current, short]);
+          },
+          onLog: (msg) => {
+            if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
+          },
+        });
+        setStatus(
+          previewOnly
+            ? "Aperçu prêt — valide le style avant le rendu complet"
+            : `${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`,
+        );
+      } catch (e) {
+        setError((e as Error).message);
+        setStatus("");
+      } finally {
+        setBusy(false);
+        setProgress(null);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [
+      file,
+      renderMode,
+      segmentSec,
+      fontKey,
+      textColor,
+      outlineColor,
+      position,
+      trimStart,
+      trimEnd,
+      duration,
+      manualMode,
+      manualText,
+    ],
+  );
 
   const download = (s: Short) => {
     const a = document.createElement("a");
