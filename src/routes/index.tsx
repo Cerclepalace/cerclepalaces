@@ -243,7 +243,7 @@ function Home() {
           >
             2 · DÉPOSE LE FICHIER
           </div>
-
+          <label
             htmlFor="video-input"
             className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
             onDragOver={(e) => e.preventDefault()}
