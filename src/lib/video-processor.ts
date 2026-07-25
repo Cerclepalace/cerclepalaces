@@ -430,7 +430,8 @@ export async function processVideo(opts: {
               }),
             );
           },
-          { onLog },
+          { onLog, signal },
+
         );
         cues = r.cues;
         void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
