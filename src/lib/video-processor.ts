@@ -271,6 +271,17 @@ export type MetricsCallback = (m: SegmentMetric) => void;
 
 const MAX_ATTEMPTS = 3;
 
+export class AbortedError extends Error {
+  constructor(message = "Traitement annulé") {
+    super(message);
+    this.name = "AbortedError";
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new AbortedError();
+}
+
 async function retry<T>(
   label: string,
   fn: (attempt: number) => Promise<T>,
@@ -278,19 +289,21 @@ async function retry<T>(
     maxAttempts?: number;
     onRetry?: (attempt: number, err: Error) => void;
     onLog?: (msg: string) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const max = opts.maxAttempts ?? MAX_ATTEMPTS;
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= max; attempt++) {
+    throwIfAborted(opts.signal);
     try {
       return await fn(attempt);
     } catch (e) {
       lastErr = e as Error;
+      if (lastErr instanceof AbortedError || opts.signal?.aborted) throw lastErr;
       opts.onLog?.(`${label} — tentative ${attempt}/${max} échouée: ${lastErr.message}`);
       if (attempt < max) {
         opts.onRetry?.(attempt, lastErr);
-        // Exponential backoff with jitter: 400ms, 1200ms, 3600ms…
         const wait = Math.min(6000, 400 * 3 ** (attempt - 1)) + Math.random() * 200;
         await new Promise((r) => setTimeout(r, wait));
       }
@@ -298,6 +311,7 @@ async function retry<T>(
   }
   throw lastErr ?? new Error(`${label} failed`);
 }
+
 
 export async function processVideo(opts: {
   file: File;
