@@ -797,6 +797,8 @@ function Home() {
                 )}
               </div>
             )}
+
+            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} />
           </section>
         )}
 
