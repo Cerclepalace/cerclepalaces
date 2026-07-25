@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   processVideo,
   probeDuration,
+  clearSegmentCache,
   FONT_OPTIONS,
   type RenderMode,
   type Short,
