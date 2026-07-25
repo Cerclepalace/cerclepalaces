@@ -287,54 +287,87 @@ export async function processVideo(opts: {
 
   const shorts: Short[] = [];
 
+  // Pipeline: extract audio for segment i, immediately fire transcription
+  // (network I/O runs in parallel with subsequent ffmpeg work), then render.
+  // Pre-fetch transcription of segment i+1 while segment i is rendering,
+  // so the Gemini round-trip is hidden behind the render CPU time.
+  const prepareTranscription = async (i: number): Promise<Cue[]> => {
+    const seg = segments[i];
+    const dur = seg.end - seg.start;
+    const audioName = `audio_${i}.webm`;
+    try {
+      await ff.exec([
+        "-ss",
+        seg.start.toFixed(3),
+        "-i",
+        "input.mp4",
+        "-t",
+        dur.toFixed(3),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "16k",
+        "-y",
+        audioName,
+      ]);
+      const audioData = (await ff.readFile(audioName)) as Uint8Array;
+      const audioB64 = uint8ToBase64(audioData);
+      await ff.deleteFile(audioName).catch(() => {});
+      // Fire network call; return the promise so caller can await later.
+      return transcribeSegment({
+        data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
+      })
+        .then((r) => r.cues)
+        .catch((e: unknown) => {
+          onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
+          return [] as Cue[];
+        });
+    } catch (e) {
+      onLog?.(`Audio extract failed for segment ${i}: ${(e as Error).message}`);
+      await ff.deleteFile(audioName).catch(() => {});
+      return [];
+    }
+  };
+
   try {
+    if (totalSegments === 0) return shorts;
+
+    onProgress({
+      phase: `Transcription segment 1/${totalSegments}`,
+      segmentIndex: 0,
+      totalSegments,
+    });
+    let nextCuesPromise: Promise<Cue[]> = prepareTranscription(0);
+
     for (let i = 0; i < totalSegments; i++) {
       const seg = segments[i];
       const start = seg.start;
       const dur = seg.end - seg.start;
       if (dur < 5) continue;
 
-      const audioName = `audio_${i}.webm`;
       const assName = `subs_${i}.ass`;
       const outName = `out_${i}.mp4`;
 
-      try {
+      const cuesPromise = nextCuesPromise;
+
+      // Kick off next segment's audio extract + transcription BEFORE rendering
+      // current one, so its network latency runs behind the render.
+      if (i + 1 < totalSegments) {
         onProgress({
-          phase: `Transcription segment ${i + 1}/${totalSegments}`,
-          segmentIndex: i,
+          phase: `Transcription segment ${i + 2}/${totalSegments}`,
+          segmentIndex: i + 1,
           totalSegments,
         });
-        await ff.exec([
-          "-ss",
-          start.toFixed(3),
-          "-i",
-          "input.mp4",
-          "-t",
-          dur.toFixed(3),
-          "-vn",
-          "-ac",
-          "1",
-          "-ar",
-          "16000",
-          "-c:a",
-          "libopus",
-          "-b:a",
-          "16k",
-          "-y",
-          audioName,
-        ]);
-        const audioData = (await ff.readFile(audioName)) as Uint8Array;
-        const audioB64 = uint8ToBase64(audioData);
+        nextCuesPromise = prepareTranscription(i + 1);
+      }
 
-        let cues: Cue[] = [];
-        try {
-          const res = await transcribeSegment({
-            data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
-          });
-          cues = res.cues;
-        } catch (e) {
-          onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
-        }
+      try {
+        const cues = await cuesPromise;
 
         await ff.writeFile(
           assName,
@@ -394,7 +427,6 @@ export async function processVideo(opts: {
         shorts.push(short);
         onShort?.(short);
       } finally {
-        await ff.deleteFile(audioName).catch(() => {});
         await ff.deleteFile(assName).catch(() => {});
         await ff.deleteFile(outName).catch(() => {});
       }
@@ -405,6 +437,7 @@ export async function processVideo(opts: {
     await ff.deleteFile("input.mp4").catch(() => {});
   }
 }
+
 
 export async function probeDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
