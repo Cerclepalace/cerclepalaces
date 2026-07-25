@@ -235,7 +235,7 @@ export async function processVideo(opts: {
         ];
         const filter = [
           ...baseFilter,
-          cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]copy[vout]",
+          cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]null[vout]",
         ].join(";");
 
         await ff.exec([
