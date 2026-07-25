@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   processVideo,
+  retrySegment,
+  computeSegments,
   probeDuration,
   clearSegmentCache,
   FONT_OPTIONS,
@@ -240,6 +242,95 @@ function Home() {
     a.click();
     a.remove();
   };
+
+  const MAX_MANUAL_RETRIES = 3;
+
+  const handleRetry = useCallback(
+    async (index: number) => {
+      if (!file) return;
+      const current = metrics[index];
+      const manualCount = current?.manualAttempts ?? 0;
+      if (manualCount >= MAX_MANUAL_RETRIES) return;
+
+      const custom = manualMode ? parseManual() : undefined;
+      const segments = computeSegments(
+        duration,
+        segmentSec,
+        { start: trimStart, end: trimEnd || duration },
+        custom,
+      );
+      const seg = segments[index];
+      if (!seg) return;
+
+      // Immediately reflect the manual retry attempt count.
+      setMetrics((prev) => ({
+        ...prev,
+        [index]: {
+          ...(prev[index] ?? { index, status: "pending" }),
+          status: "retrying",
+          manualAttempts: manualCount + 1,
+          lastError: undefined,
+        },
+      }));
+
+      try {
+        const short = await retrySegment({
+          file,
+          index,
+          segment: seg,
+          renderMode,
+          style: { fontKey, textColor, outlineColor, position },
+          throttle: { maxConcurrent, rpm },
+          onMetric: (m) => {
+            setMetrics((prev) => {
+              const existing = prev[m.index];
+              return {
+                ...prev,
+                [m.index]: { ...(existing ?? {}), ...m, manualAttempts: manualCount + 1 },
+              };
+            });
+          },
+          onLog: (msg) => {
+            if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg-retry]", msg);
+          },
+        });
+        if (short) {
+          setShorts((cur) => {
+            const filtered = cur.filter((s) => s.index !== short.index);
+            return [...filtered, short].sort((a, b) => a.index - b.index);
+          });
+        }
+      } catch (e) {
+        setMetrics((prev) => ({
+          ...prev,
+          [index]: {
+            ...(prev[index] ?? { index, status: "error" }),
+            status: "error",
+            lastError: (e as Error).message,
+            manualAttempts: manualCount + 1,
+          },
+        }));
+      }
+    },
+    [
+      file,
+      metrics,
+      duration,
+      segmentSec,
+      trimStart,
+      trimEnd,
+      manualMode,
+      manualText,
+      renderMode,
+      fontKey,
+      textColor,
+      outlineColor,
+      position,
+      maxConcurrent,
+      rpm,
+    ],
+  );
+
 
   const fontPreviewFamily: Record<FontKey, string> = {
     bebas: "Bebas Neue, Impact, sans-serif",
@@ -861,7 +952,7 @@ function Home() {
               </div>
             )}
 
-            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} />
+            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} />
           </section>
         )}
 
@@ -922,12 +1013,16 @@ function Dashboard({
   nowMs,
   busy,
   doneCount,
+  onRetry,
+  maxManualRetries,
 }: {
   metrics: Record<number, SegmentMetric>;
   runStartMs: number | null;
   nowMs: number;
   busy: boolean;
   doneCount: number;
+  onRetry: (index: number) => void | Promise<void>;
+  maxManualRetries: number;
 }) {
   const rows = Object.values(metrics).sort((a, b) => a.index - b.index);
   if (rows.length === 0) return null;
@@ -1022,33 +1117,58 @@ function Dashboard({
               <th className="px-2 py-1.5 text-right font-medium">Transcription</th>
               <th className="px-2 py-1.5 text-right font-medium">Rendu</th>
               <th className="px-2 py-1.5 text-right font-medium">Cues</th>
+              <th className="px-2 py-1.5 text-right font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.index} className="border-t border-white/5">
-                <td className="px-2 py-1.5 font-mono text-white/60">{r.index + 1}</td>
-                <td className="px-2 py-1.5">
-                  <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${statusColor[r.status]}`}
-                  >
-                    {statusLabel[r.status]}
-                  </span>
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/70">
-                  {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/70">
-                  {r.renderMs ? fmtMs(r.renderMs) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-white/50">
-                  {r.cueCount ?? "—"}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const manualCount = r.manualAttempts ?? 0;
+              const canRetry = r.status === "error" && manualCount < maxManualRetries && !busy;
+              const retryExhausted = r.status === "error" && manualCount >= maxManualRetries;
+              return (
+                <tr key={r.index} className="border-t border-white/5" title={r.lastError ?? undefined}>
+                  <td className="px-2 py-1.5 font-mono text-white/60">{r.index + 1}</td>
+                  <td className="px-2 py-1.5">
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${statusColor[r.status]}`}
+                    >
+                      {statusLabel[r.status]}
+                    </span>
+                    {manualCount > 0 && (
+                      <span className="ml-1 text-[10px] text-white/40">×{manualCount}</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                    {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                    {r.renderMs ? fmtMs(r.renderMs) : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-white/50">
+                    {r.cueCount ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    {canRetry ? (
+                      <button
+                        type="button"
+                        onClick={() => onRetry(r.index)}
+                        className="rounded border border-[#39FF14]/40 bg-[#39FF14]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#39FF14] hover:bg-[#39FF14]/20"
+                      >
+                        Relancer ({maxManualRetries - manualCount})
+                      </button>
+                    ) : retryExhausted ? (
+                      <span className="text-[10px] text-red-300/70">Épuisé</span>
+                    ) : (
+                      <span className="text-[10px] text-white/20">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
     </div>
   );
 }
