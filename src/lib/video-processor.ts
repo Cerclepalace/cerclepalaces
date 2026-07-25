@@ -246,13 +246,45 @@ export function computeSegments(
 
 export type SegmentMetric = {
   index: number;
-  status: "pending" | "transcribing" | "rendering" | "done" | "error";
+  status: "pending" | "transcribing" | "rendering" | "done" | "error" | "retrying";
   transcribeMs?: number;
   renderMs?: number;
   cueCount?: number;
+  attempts?: number;
+  lastError?: string;
 };
 
 export type MetricsCallback = (m: SegmentMetric) => void;
+
+const MAX_ATTEMPTS = 3;
+
+async function retry<T>(
+  label: string,
+  fn: (attempt: number) => Promise<T>,
+  opts: {
+    maxAttempts?: number;
+    onRetry?: (attempt: number, err: Error) => void;
+    onLog?: (msg: string) => void;
+  } = {},
+): Promise<T> {
+  const max = opts.maxAttempts ?? MAX_ATTEMPTS;
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= max; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastErr = e as Error;
+      opts.onLog?.(`${label} — tentative ${attempt}/${max} échouée: ${lastErr.message}`);
+      if (attempt < max) {
+        opts.onRetry?.(attempt, lastErr);
+        // Exponential backoff with jitter: 400ms, 1200ms, 3600ms…
+        const wait = Math.min(6000, 400 * 3 ** (attempt - 1)) + Math.random() * 200;
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastErr ?? new Error(`${label} failed`);
+}
 
 export async function processVideo(opts: {
   file: File;
@@ -309,46 +341,50 @@ export async function processVideo(opts: {
     const t0 = performance.now();
     onMetric?.({ index: i, status: "transcribing" });
     try {
-      await ff.exec([
-        "-ss",
-        seg.start.toFixed(3),
-        "-i",
-        "input.mp4",
-        "-t",
-        dur.toFixed(3),
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-c:a",
-        "libopus",
-        "-b:a",
-        "16k",
-        "-y",
-        audioName,
-      ]);
-      const audioData = (await ff.readFile(audioName)) as Uint8Array;
-      const audioB64 = uint8ToBase64(audioData);
-      await ff.deleteFile(audioName).catch(() => {});
-      // Fire network call; return the promise so caller can await later.
-      return transcribeSegment({
-        data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
-      })
-        .then((r) => {
+      // Audio extraction retry (WASM can occasionally fail on memory pressure)
+      const audioB64 = await retry(
+        `Extraction audio segment ${i + 1}`,
+        async (attempt) => {
+          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          await ff.exec([
+            "-ss", seg.start.toFixed(3),
+            "-i", "input.mp4",
+            "-t", dur.toFixed(3),
+            "-vn", "-ac", "1", "-ar", "16000",
+            "-c:a", "libopus", "-b:a", "16k",
+            "-y", audioName,
+          ]);
+          const audioData = (await ff.readFile(audioName)) as Uint8Array;
+          const b64 = uint8ToBase64(audioData);
+          await ff.deleteFile(audioName).catch(() => {});
+          return b64;
+        },
+        { onLog },
+      );
+
+      // Network transcription retry (Gemini can 429 / timeout under load)
+      return retry(
+        `Transcription segment ${i + 1}`,
+        async (attempt) => {
+          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          const r = await transcribeSegment({
+            data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
+          });
           const ms = performance.now() - t0;
-          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length });
+          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
           return r.cues;
-        })
-        .catch((e: unknown) => {
-          onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
-          onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0 });
-          return [] as Cue[];
-        });
+        },
+        { onLog },
+      ).catch((e: unknown) => {
+        // Non-fatal: render without subtitles rather than blocking the pipeline
+        onLog?.(`Transcription abandonnée pour le segment ${i + 1} après reprises: ${(e as Error).message}`);
+        onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0, lastError: (e as Error).message });
+        return [] as Cue[];
+      });
     } catch (e) {
-      onLog?.(`Audio extract failed for segment ${i}: ${(e as Error).message}`);
+      onLog?.(`Extraction audio abandonnée pour segment ${i + 1}: ${(e as Error).message}`);
       await ff.deleteFile(audioName).catch(() => {});
-      onMetric?.({ index: i, status: "error" });
+      onMetric?.({ index: i, status: "rendering", cueCount: 0, lastError: (e as Error).message });
       return [];
     }
   };
@@ -424,34 +460,37 @@ export async function processVideo(opts: {
           cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]null[vout]",
         ].join(";");
 
-        await ff.exec([
-          "-ss",
-          start.toFixed(3),
-          "-i",
-          "input.mp4",
-          "-t",
-          dur.toFixed(3),
-          "-filter_complex",
-          filter,
-          "-map",
-          "[vout]",
-          "-map",
-          "0:a?",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-crf",
-          profile.crf,
-          "-c:a",
-          "aac",
-          "-b:a",
-          profile.audioBitrate,
-          "-movflags",
-          "+faststart",
-          "-y",
-          outName,
-        ]);
+        await retry(
+          `Rendu segment ${i + 1}`,
+          async (attempt) => {
+            if (attempt > 1) {
+              onMetric?.({ index: i, status: "retrying", attempts: attempt });
+              onProgress({
+                phase: `Reprise rendu segment ${i + 1}/${totalSegments} (essai ${attempt})`,
+                segmentIndex: i,
+                totalSegments,
+              });
+              // Clean any partial output before retrying
+              await ff.deleteFile(outName).catch(() => {});
+            }
+            await ff.exec([
+              "-ss", start.toFixed(3),
+              "-i", "input.mp4",
+              "-t", dur.toFixed(3),
+              "-filter_complex", filter,
+              "-map", "[vout]",
+              "-map", "0:a?",
+              "-c:v", "libx264",
+              "-preset", "ultrafast",
+              "-crf", profile.crf,
+              "-c:a", "aac",
+              "-b:a", profile.audioBitrate,
+              "-movflags", "+faststart",
+              "-y", outName,
+            ]);
+          },
+          { onLog },
+        );
 
         const outData = (await ff.readFile(outName)) as Uint8Array;
         const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
@@ -461,8 +500,11 @@ export async function processVideo(opts: {
         onShort?.(short);
         onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
       } catch (e) {
-        onMetric?.({ index: i, status: "error" });
-        throw e;
+        // Failure after all retries: log, mark segment as errored, and CONTINUE
+        // so a single bad segment doesn't kill the entire pipeline.
+        const msg = (e as Error).message;
+        onLog?.(`Segment ${i + 1} abandonné après reprises: ${msg}`);
+        onMetric?.({ index: i, status: "error", lastError: msg });
       } finally {
         await ff.deleteFile(assName).catch(() => {});
         await ff.deleteFile(outName).catch(() => {});
