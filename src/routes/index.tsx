@@ -12,11 +12,11 @@ export const Route = createFileRoute("/")({
         content:
           "Découpe une vidéo horizontale en shorts 9:16 de 60 à 80 secondes avec sous-titres néon blanc et vert générés par IA. 100% dans ton navigateur.",
       },
-      { property: "og:title", content: "NeonCut — Shorts TikTok automatiques" },
+      { property: "og:title", content: "NeonCut — Vidéos YouTube en Shorts TikTok avec sous-titres néon" },
       {
         property: "og:description",
         content:
-          "Uploade ta vidéo, choisis la durée, télécharge tes shorts verticaux prêts à publier.",
+          "Découpe une vidéo horizontale en shorts 9:16 de 60 à 80 secondes avec sous-titres néon blanc et vert générés par IA. 100% dans ton navigateur.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

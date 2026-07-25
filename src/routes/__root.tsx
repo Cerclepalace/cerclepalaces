@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "NeonCut — Vidéos YouTube en Shorts TikTok avec sous-titres néon" },
+      { name: "description", content: "Découpe une vidéo horizontale en shorts 9:16 de 60 à 80 secondes avec sous-titres néon blanc et vert générés par IA. 100% dans ton navigateur." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "NeonCut — Vidéos YouTube en Shorts TikTok avec sous-titres néon" },
+      { property: "og:description", content: "Découpe une vidéo horizontale en shorts 9:16 de 60 à 80 secondes avec sous-titres néon blanc et vert générés par IA. 100% dans ton navigateur." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "NeonCut — Vidéos YouTube en Shorts TikTok avec sous-titres néon" },
+      { name: "twitter:description", content: "Découpe une vidéo horizontale en shorts 9:16 de 60 à 80 secondes avec sous-titres néon blanc et vert générés par IA. 100% dans ton navigateur." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/2c2b2f34-f867-4f0a-bfbb-e0b2b53712f5" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/2c2b2f34-f867-4f0a-bfbb-e0b2b53712f5" },
     ],
     links: [
       {
