@@ -180,6 +180,7 @@ function Home() {
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
+          throttle: { maxConcurrent, rpm },
           onProgress: (info) => {
             setStatus(info.phase);
             if (info.segmentIndex !== undefined && info.totalSegments) {
