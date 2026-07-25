@@ -340,7 +340,7 @@ export async function processVideo(opts: {
     // Parallelism: keep up to N transcriptions in flight ahead of the renderer.
     // Each Gemini call is independent; running several in parallel hides the
     // network round-trip even when rendering is faster than one call.
-    const LOOKAHEAD = 4;
+    const LOOKAHEAD = 16;
     const cuesPromises: Array<Promise<Cue[]> | undefined> = new Array(totalSegments);
 
     // Audio extraction uses the shared ffmpeg instance, so serialize the
