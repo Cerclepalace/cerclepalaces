@@ -400,9 +400,11 @@ export async function processVideo(opts: {
         `Transcription segment ${i + 1}`,
         async (attempt) => {
           if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
-          const r = await transcribeSegment({
-            data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
-          });
+          const r = await geminiThrottle.run(() =>
+            transcribeSegment({
+              data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
+            }),
+          );
           const ms = performance.now() - t0;
           onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
           void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
