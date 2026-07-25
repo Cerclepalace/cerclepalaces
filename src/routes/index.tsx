@@ -169,6 +169,9 @@ function Home() {
   const run = useCallback(
     async (previewOnly = false) => {
       if (!file) return;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       setBusy(true);
       setError(null);
       setShorts([]);
@@ -192,6 +195,7 @@ function Home() {
           customSegments: custom,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          signal: controller.signal,
           onProgress: (info) => {
             setStatus(info.phase);
             if (info.segmentIndex !== undefined && info.totalSegments) {
@@ -217,14 +221,21 @@ function Home() {
             : `${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`,
         );
       } catch (e) {
-        setError((e as Error).message);
-        setStatus("");
+        if ((e as Error).name === "AbortedError" || controller.signal.aborted) {
+          setStatus("Traitement annulé");
+          setError(null);
+        } else {
+          setError((e as Error).message);
+          setStatus("");
+        }
       } finally {
+        if (abortRef.current === controller) abortRef.current = null;
         setBusy(false);
         setProgress(null);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+
     [
       file,
       renderMode,
