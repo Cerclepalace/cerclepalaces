@@ -15,6 +15,54 @@ export type ProgressCallback = (info: {
   progress?: number;
 }) => void;
 
+export type RenderMode = "fast" | "quality";
+
+type RenderProfile = {
+  width: number;
+  height: number;
+  bgWidth: number;
+  bgHeight: number;
+  blur: string;
+  fontSize: number;
+  outline: number;
+  shadow: number;
+  marginV: number;
+  crf: string;
+  audioBitrate: string;
+  fps: number;
+};
+
+const RENDER_PROFILES: Record<RenderMode, RenderProfile> = {
+  fast: {
+    width: 720,
+    height: 1280,
+    bgWidth: 360,
+    bgHeight: 640,
+    blur: "10:1",
+    fontSize: 64,
+    outline: 4,
+    shadow: 3,
+    marginV: 175,
+    crf: "32",
+    audioBitrate: "96k",
+    fps: 30,
+  },
+  quality: {
+    width: 1080,
+    height: 1920,
+    bgWidth: 540,
+    bgHeight: 960,
+    blur: "14:1",
+    fontSize: 96,
+    outline: 6,
+    shadow: 4,
+    marginV: 260,
+    crf: "28",
+    audioBitrate: "128k",
+    fps: 30,
+  },
+};
+
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (ffmpegInstance) return ffmpegInstance;
   if (loadPromise) return loadPromise;
@@ -43,17 +91,17 @@ export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> 
 
 // ASS colors are &HAABBGGRR — 00 alpha = opaque
 // White #FFFFFF -> &H00FFFFFF ; Neon green #39FF14 -> BGR 14FF39 -> &H0014FF39
-function buildAssFile(cues: Cue[], durationSec: number): string {
+function buildAssFile(cues: Cue[], durationSec: number, profile: RenderProfile): string {
   const header = `[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${profile.width}
+PlayResY: ${profile.height}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Neon,Bebas Neue,96,&H00FFFFFF,&H00FFFFFF,&H0014FF39,&H0014FF39,1,0,0,0,100,100,2,0,1,6,4,2,80,80,260,1
+Style: Neon,Bebas Neue,${profile.fontSize},&H00FFFFFF,&H00FFFFFF,&H0014FF39,&H0014FF39,1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},2,60,60,${profile.marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -92,10 +140,13 @@ export type Short = {
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
+  renderMode?: RenderMode;
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
+  onShort?: (short: Short) => void;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort } = opts;
+  const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
 
   onProgress({ phase: "Chargement du moteur vidéo" });
   const ff = await getFFmpeg(onLog);
@@ -116,134 +167,123 @@ export async function processVideo(opts: {
 
   const shorts: Short[] = [];
 
-  for (let i = 0; i < totalSegments; i++) {
-    const start = i * segmentSec;
-    const dur = Math.min(segmentSec, durationSec - start);
-    if (dur < 10) break;
+  try {
+    for (let i = 0; i < totalSegments; i++) {
+      const start = i * segmentSec;
+      const dur = Math.min(segmentSec, durationSec - start);
+      if (dur < 10) break;
 
-    onProgress({
-      phase: `Extraction segment ${i + 1}/${totalSegments}`,
-      segmentIndex: i,
-      totalSegments,
-    });
+      const audioName = `audio_${i}.webm`;
+      const assName = `subs_${i}.ass`;
+      const outName = `out_${i}.mp4`;
 
-    // Cut raw segment first (fast, re-encoded to keyframe boundary)
-    const rawName = `raw_${i}.mp4`;
-    await ff.exec([
-      "-ss",
-      start.toFixed(3),
-      "-i",
-      "input.mp4",
-      "-t",
-      dur.toFixed(3),
-      "-c:v",
-      "libx264",
-      "-preset",
-      "ultrafast",
-      "-crf",
-      "23",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-y",
-      rawName,
-    ]);
+      try {
+        // Extract only the tiny audio slice from the source. This avoids the old extra
+        // full-video re-encode pass that made mobile processing extremely slow.
+        onProgress({
+          phase: `Transcription segment ${i + 1}/${totalSegments}`,
+          segmentIndex: i,
+          totalSegments,
+        });
+        await ff.exec([
+          "-ss",
+          start.toFixed(3),
+          "-i",
+          "input.mp4",
+          "-t",
+          dur.toFixed(3),
+          "-vn",
+          "-ac",
+          "1",
+          "-ar",
+          "16000",
+          "-c:a",
+          "libopus",
+          "-b:a",
+          "16k",
+          "-y",
+          audioName,
+        ]);
+        const audioData = (await ff.readFile(audioName)) as Uint8Array;
+        const audioB64 = uint8ToBase64(audioData);
 
-    // Extract audio for transcription
-    onProgress({
-      phase: `Transcription segment ${i + 1}/${totalSegments}`,
-      segmentIndex: i,
-      totalSegments,
-    });
-    const audioName = `audio_${i}.webm`;
-    await ff.exec([
-      "-i",
-      rawName,
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-c:a",
-      "libopus",
-      "-b:a",
-      "16k",
-      "-y",
-      audioName,
-    ]);
-    const audioData = (await ff.readFile(audioName)) as Uint8Array;
-    const audioB64 = uint8ToBase64(audioData);
+        let cues: Cue[] = [];
+        try {
+          const res = await transcribeSegment({
+            data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
+          });
+          cues = res.cues;
+        } catch (e) {
+          onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
+        }
 
-    let cues: Cue[] = [];
-    try {
-      const res = await transcribeSegment({
-        data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
-      });
-      cues = res.cues;
-    } catch (e) {
-      onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
+        await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur, profile)));
+
+        onProgress({
+          phase: `Rendu rapide ${profile.width}p segment ${i + 1}/${totalSegments}`,
+          segmentIndex: i,
+          totalSegments,
+        });
+
+        // Compose directly from the source segment in one pass. The background blur is
+        // calculated at a smaller size then scaled up, which is much faster on phones.
+        const baseFilter = [
+          "[0:v]split=2[bg][fg]",
+          `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
+          `[fg]scale=${profile.width}:-2[fgs]`,
+          `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+        ];
+        const filter = [
+          ...baseFilter,
+          cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]copy[vout]",
+        ].join(";");
+
+        await ff.exec([
+          "-ss",
+          start.toFixed(3),
+          "-i",
+          "input.mp4",
+          "-t",
+          dur.toFixed(3),
+          "-filter_complex",
+          filter,
+          "-map",
+          "[vout]",
+          "-map",
+          "0:a?",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-crf",
+          profile.crf,
+          "-c:a",
+          "aac",
+          "-b:a",
+          profile.audioBitrate,
+          "-movflags",
+          "+faststart",
+          "-y",
+          outName,
+        ]);
+
+        const outData = (await ff.readFile(outName)) as Uint8Array;
+        const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        const short = { index: i, startSec: start, endSec: start + dur, blob, url };
+        shorts.push(short);
+        onShort?.(short);
+      } finally {
+        await ff.deleteFile(audioName).catch(() => {});
+        await ff.deleteFile(assName).catch(() => {});
+        await ff.deleteFile(outName).catch(() => {});
+      }
     }
 
-    // Write ass subtitle file
-    const assName = `subs_${i}.ass`;
-    await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur)));
-
-    onProgress({
-      phase: `Rendu 9:16 segment ${i + 1}/${totalSegments}`,
-      segmentIndex: i,
-      totalSegments,
-    });
-
-    // Compose: blurred bg + centered original + burned subs -> 1080x1920
-    const outName = `out_${i}.mp4`;
-    const filter = [
-      "[0:v]split=2[bg][fg]",
-      "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.1[bgblur]",
-      "[fg]scale=1080:-2[fgs]",
-      `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2[v]`,
-      `[v]subtitles=${assName}:fontsdir=/fonts[vout]`,
-    ].join(";");
-
-    await ff.exec([
-      "-i",
-      rawName,
-      "-filter_complex",
-      filter,
-      "-map",
-      "[vout]",
-      "-map",
-      "0:a?",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "ultrafast",
-      "-crf",
-      "26",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-movflags",
-      "+faststart",
-      "-y",
-      outName,
-    ]);
-
-    const outData = (await ff.readFile(outName)) as Uint8Array;
-    const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
-    const url = URL.createObjectURL(blob);
-    shorts.push({ index: i, startSec: start, endSec: start + dur, blob, url });
-
-    // Clean up temp files for this segment
-    await ff.deleteFile(rawName).catch(() => {});
-    await ff.deleteFile(audioName).catch(() => {});
-    await ff.deleteFile(assName).catch(() => {});
-    await ff.deleteFile(outName).catch(() => {});
+    return shorts;
+  } finally {
+    await ff.deleteFile("input.mp4").catch(() => {});
   }
-
-  await ff.deleteFile("input.mp4").catch(() => {});
-  return shorts;
 }
 
 async function probeDuration(file: File): Promise<number> {
