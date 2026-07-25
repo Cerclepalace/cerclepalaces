@@ -73,7 +73,17 @@ function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
+  const [runStartMs, setRunStartMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Live clock while busy so throughput/ETA update in real time
+  useEffect(() => {
+    if (!busy) return;
+    const id = setInterval(() => setNowMs(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [busy]);
 
   const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
   const cobaltUrl = ytValid
