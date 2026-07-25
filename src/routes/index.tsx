@@ -77,6 +77,8 @@ function Home() {
   const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
   const [runStartMs, setRunStartMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [maxConcurrent, setMaxConcurrent] = useState(4);
+  const [rpm, setRpm] = useState(30);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Live clock while busy so throughput/ETA update in real time
