@@ -244,6 +244,16 @@ export function computeSegments(
   return out;
 }
 
+export type SegmentMetric = {
+  index: number;
+  status: "pending" | "transcribing" | "rendering" | "done" | "error";
+  transcribeMs?: number;
+  renderMs?: number;
+  cueCount?: number;
+};
+
+export type MetricsCallback = (m: SegmentMetric) => void;
+
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
@@ -254,8 +264,9 @@ export async function processVideo(opts: {
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
+  onMetric?: MetricsCallback;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog, onShort, style } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
 
   onProgress({ phase: "Chargement du moteur vidéo" });
