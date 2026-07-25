@@ -81,6 +81,12 @@ function Home() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
+  const [poolSize, setPoolSize] = useState(() => {
+    if (typeof navigator === "undefined") return 2;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile) return 1;
+    return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Live clock while busy so throughput/ETA update in real time
@@ -183,6 +189,7 @@ function Home() {
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
           throttle: { maxConcurrent, rpm },
+          poolSize,
           onProgress: (info) => {
             setStatus(info.phase);
             if (info.segmentIndex !== undefined && info.totalSegments) {
@@ -231,6 +238,7 @@ function Home() {
       manualText,
       maxConcurrent,
       rpm,
+      poolSize,
     ],
   );
 
@@ -891,6 +899,42 @@ function Home() {
                 </label>
               </div>
             </div>
+
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
+                <span>Pool de rendu FFmpeg</span>
+                <span className="text-[10px] normal-case tracking-normal text-white/40">
+                  workers parallèles dans ton navigateur
+                </span>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase tracking-widest text-white/50">
+                    Nombre de workers ({poolSize})
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={4}
+                    step={1}
+                    value={poolSize}
+                    onChange={(e) => setPoolSize(Number(e.target.value))}
+                    disabled={busy}
+                    className="accent-[#39FF14]"
+                  />
+                  <div className="flex justify-between text-[10px] text-white/40">
+                    <span>1 (mobile)</span>
+                    <span>2</span>
+                    <span>3</span>
+                    <span>4 (desktop)</span>
+                  </div>
+                  <span className="mt-1 text-[10px] text-white/40">
+                    Chaque worker charge ~30 Mo de WASM + la vidéo en mémoire. Baisse à 1–2 si ton navigateur plante.
+                  </span>
+                </label>
+              </div>
+            </div>
+
 
 
 
