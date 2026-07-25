@@ -243,8 +243,13 @@ function Home() {
           >
             2 · DÉPOSE LE FICHIER
           </div>
-          <label
-            htmlFor="video-input"
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => inputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+            }}
             className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -258,18 +263,27 @@ function Home() {
             </div>
             <div className="text-xs text-white/50">
               {file
-                ? `${(file.size / 1024 / 1024).toFixed(1)} Mo — clique pour changer`
+                ? `${(file.size / 1024 / 1024).toFixed(1)} Mo — touche pour changer`
                 : "MP4 / MOV / WEBM · max 500 Mo"}
             </div>
-            <input
-              id="video-input"
-              ref={inputRef}
-              type="file"
-              accept="video/*"
-              className="hidden"
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-            />
-          </label>
+            <span
+              className="mt-2 inline-block rounded-lg px-4 py-2 text-sm font-bold uppercase tracking-wider"
+              style={{ backgroundColor: "#39FF14", color: "#050505" }}
+            >
+              Choisir un fichier
+            </span>
+          </div>
+          <input
+            id="video-input"
+            ref={inputRef}
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm,video/*"
+            className="sr-only"
+            onChange={(e) => {
+              handleFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
 
           <div className="mt-6">
             <div className="mb-2 flex items-baseline justify-between">
