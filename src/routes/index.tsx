@@ -88,6 +88,8 @@ function Home() {
     return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
   });
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
 
   // Live clock while busy so throughput/ETA update in real time
   useEffect(() => {
