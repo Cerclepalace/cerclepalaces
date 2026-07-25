@@ -480,7 +480,7 @@ export async function processVideo(opts: {
             }),
           );
         },
-        { onLog },
+        { onLog, signal },
       );
 
       const blob = new Blob([res.mp4], { type: "video/mp4" });
@@ -497,10 +497,15 @@ export async function processVideo(opts: {
       onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
     } catch (e) {
       const msg = (e as Error).message;
+      if (e instanceof AbortedError || signal?.aborted) {
+        onMetric?.({ index: i, status: "error", lastError: "Annulé" });
+        return;
+      }
       onLog?.(`Segment ${i + 1} abandonné après reprises: ${msg}`);
       onMetric?.({ index: i, status: "error", lastError: msg });
     }
   };
+
 
   try {
     onProgress({
