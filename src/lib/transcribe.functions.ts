@@ -2,9 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { callGeminiJson } from "./ai-gateway.server";
 
+// Cap payload at ~8MB base64 (~6MB raw), enough for ~120s of compressed audio.
+const MAX_AUDIO_BASE64_LENGTH = 8 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = ["audio/webm", "audio/mp3", "audio/mpeg", "audio/wav", "audio/x-wav"];
+
 const InputSchema = z.object({
-  audioBase64: z.string().min(1),
-  mimeType: z.string().default("audio/webm"),
+  audioBase64: z
+    .string()
+    .min(1)
+    .max(MAX_AUDIO_BASE64_LENGTH, { message: "Audio payload too large" })
+    .regex(/^[A-Za-z0-9+/=]+$/, { message: "Invalid base64 payload" }),
+  mimeType: z
+    .string()
+    .default("audio/webm")
+    .refine((m) => ALLOWED_MIME_TYPES.includes(m), { message: "Unsupported mime type" }),
   durationSec: z.number().min(1).max(120),
 });
 
