@@ -3,7 +3,7 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
 
 const CORE_VERSION = "0.12.10";
-const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/umd`;
+const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
 
 let ffmpegInstance: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
@@ -20,14 +20,22 @@ export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> 
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    const ff = new FFmpeg();
-    if (onLog) ff.on("log", ({ message }) => onLog(message));
-    await ff.load({
-      coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-    });
-    ffmpegInstance = ff;
-    return ff;
+    try {
+      const ff = new FFmpeg();
+      if (onLog) ff.on("log", ({ message }) => onLog(message));
+      await ff.load({
+        coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      ffmpegInstance = ff;
+      return ff;
+    } catch (error) {
+      loadPromise = null;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Impossible de charger le moteur vidéo sur cet appareil. Sur mobile, essaie Chrome/Safari à jour, désactive le mode économie d'énergie, ou utilise un ordinateur. Détail : ${message}`,
+      );
+    }
   })();
 
   return loadPromise;
