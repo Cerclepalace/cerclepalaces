@@ -337,12 +337,31 @@ export async function processVideo(opts: {
   try {
     if (totalSegments === 0) return shorts;
 
-    onProgress({
-      phase: `Transcription segment 1/${totalSegments}`,
-      segmentIndex: 0,
-      totalSegments,
-    });
-    let nextCuesPromise: Promise<Cue[]> = prepareTranscription(0);
+    // Parallelism: keep up to N transcriptions in flight ahead of the renderer.
+    // Each Gemini call is independent; running several in parallel hides the
+    // network round-trip even when rendering is faster than one call.
+    const LOOKAHEAD = 4;
+    const cuesPromises: Array<Promise<Cue[]> | undefined> = new Array(totalSegments);
+
+    // Audio extraction uses the shared ffmpeg instance, so serialize the
+    // extract step but let the network calls overlap freely afterwards.
+    let extractChain: Promise<void> = Promise.resolve();
+    const primeUpTo = (upto: number) => {
+      const limit = Math.min(totalSegments - 1, upto);
+      for (let k = 0; k <= limit; k++) {
+        if (cuesPromises[k]) continue;
+        const idx = k;
+        onProgress({
+          phase: `Transcription segment ${idx + 1}/${totalSegments}`,
+          segmentIndex: idx,
+          totalSegments,
+        });
+        cuesPromises[idx] = extractChain.then(() => prepareTranscription(idx));
+        extractChain = cuesPromises[idx]!.then(() => undefined).catch(() => undefined);
+      }
+    };
+
+    primeUpTo(LOOKAHEAD - 1);
 
     for (let i = 0; i < totalSegments; i++) {
       const seg = segments[i];
@@ -353,18 +372,8 @@ export async function processVideo(opts: {
       const assName = `subs_${i}.ass`;
       const outName = `out_${i}.mp4`;
 
-      const cuesPromise = nextCuesPromise;
-
-      // Kick off next segment's audio extract + transcription BEFORE rendering
-      // current one, so its network latency runs behind the render.
-      if (i + 1 < totalSegments) {
-        onProgress({
-          phase: `Transcription segment ${i + 2}/${totalSegments}`,
-          segmentIndex: i + 1,
-          totalSegments,
-        });
-        nextCuesPromise = prepareTranscription(i + 1);
-      }
+      primeUpTo(i + LOOKAHEAD);
+      const cuesPromise = cuesPromises[i]!;
 
       try {
         const cues = await cuesPromise;
