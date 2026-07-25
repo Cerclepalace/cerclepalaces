@@ -1,6 +1,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
+import { geminiThrottle, type ThrottleOptions } from "./gemini-throttle";
 import {
   getCachedAudio,
   setCachedAudio,
@@ -305,9 +306,11 @@ export async function processVideo(opts: {
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
   onMetric?: MetricsCallback;
+  throttle?: ThrottleOptions;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   onProgress({ phase: "Chargement du moteur vidéo" });
   const ff = await getFFmpeg(onLog);
@@ -397,9 +400,11 @@ export async function processVideo(opts: {
         `Transcription segment ${i + 1}`,
         async (attempt) => {
           if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
-          const r = await transcribeSegment({
-            data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
-          });
+          const r = await geminiThrottle.run(() =>
+            transcribeSegment({
+              data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
+            }),
+          );
           const ms = performance.now() - t0;
           onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
           void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
