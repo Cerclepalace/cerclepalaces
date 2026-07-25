@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useRef, useState } from "react";
-import { processVideo, type Short } from "@/lib/video-processor";
+import { processVideo, type RenderMode, type Short } from "@/lib/video-processor";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/")({
 function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [segmentSec, setSegmentSec] = useState(70);
+  const [renderMode, setRenderMode] = useState<RenderMode>("fast");
   const [status, setStatus] = useState<string>("");
   const [progress, setProgress] = useState<{ i: number; total: number } | null>(null);
   const [shorts, setShorts] = useState<Short[]>([]);
@@ -69,17 +70,20 @@ function Home() {
       const out = await processVideo({
         file,
         segmentSec,
+        renderMode,
         onProgress: (info) => {
           setStatus(info.phase);
           if (info.segmentIndex !== undefined && info.totalSegments) {
             setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
           }
         },
+        onShort: (short) => {
+          setShorts((current) => [...current, short]);
+        },
         onLog: (msg) => {
           if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
         },
       });
-      setShorts(out);
       setStatus(`${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`);
     } catch (e) {
       setError((e as Error).message);
@@ -88,7 +92,7 @@ function Home() {
       setBusy(false);
       setProgress(null);
     }
-  }, [file, segmentSec]);
+  }, [file, renderMode, segmentSec]);
 
   const download = (s: Short) => {
     const a = document.createElement("a");
@@ -129,8 +133,8 @@ function Home() {
           </h2>
           <p className="mt-4 max-w-xl text-sm text-white/60">
             Uploade une vidéo horizontale. NeonCut la découpe en shorts 9:16 de 60 à 80 secondes,
-            recadre avec fond flou et brûle des sous-titres néon générés par IA. Rien ne quitte ton
-            navigateur — sauf ~200 Ko d'audio par short envoyés à l'IA pour la transcription.
+            recadre avec fond flou et brûle des sous-titres néon générés par IA. Sur mobile, le mode
+            rapide sort des fichiers plus légers pour éviter les rendus interminables.
           </p>
         </section>
 
@@ -316,6 +320,45 @@ function Home() {
             </div>
           </div>
 
+          <div className="mt-6">
+            <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Vitesse de rendu</div>
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
+              <Button
+                type="button"
+                variant={renderMode === "fast" ? "default" : "ghost"}
+                onClick={() => setRenderMode("fast")}
+                disabled={busy}
+                className="h-auto flex-col gap-1 px-3 py-3 text-left"
+                style={
+                  renderMode === "fast"
+                    ? { backgroundColor: "#39FF14", color: "#050505" }
+                    : undefined
+                }
+              >
+                <span className="text-sm font-bold uppercase tracking-wider">Rapide mobile</span>
+                <span className="text-xs font-normal opacity-70">720×1280 · plus léger</span>
+              </Button>
+              <Button
+                type="button"
+                variant={renderMode === "quality" ? "default" : "ghost"}
+                onClick={() => setRenderMode("quality")}
+                disabled={busy}
+                className="h-auto flex-col gap-1 px-3 py-3 text-left"
+                style={
+                  renderMode === "quality"
+                    ? { backgroundColor: "#39FF14", color: "#050505" }
+                    : undefined
+                }
+              >
+                <span className="text-sm font-bold uppercase tracking-wider">Qualité</span>
+                <span className="text-xs font-normal opacity-70">1080×1920 · plus lent</span>
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-white/45">
+              Les shorts apparaissent un par un dès qu'ils sont prêts, sans attendre la fin complète.
+            </p>
+          </div>
+
           <Button
             onClick={run}
             disabled={!file || busy}
@@ -326,7 +369,7 @@ function Home() {
               boxShadow: busy ? "none" : "0 0 24px rgba(57,255,20,0.5)",
             }}
           >
-            {busy ? "Traitement en cours…" : "Générer mes shorts"}
+            {busy ? "Traitement en cours…" : `Générer en mode ${renderMode === "fast" ? "rapide" : "qualité"}`}
           </Button>
 
           {(status || error) && (
