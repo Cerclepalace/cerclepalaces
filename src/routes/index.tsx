@@ -134,8 +134,116 @@ function Home() {
           </p>
         </section>
 
+        <section className="mb-6 rounded-2xl border border-[#39FF14]/25 bg-[#39FF14]/[0.04] p-6">
+          <div className="mb-3 flex items-center gap-2">
+            <span
+              className="text-xl"
+              style={{ fontFamily: "Bebas Neue, Impact, sans-serif", color: "#39FF14", letterSpacing: "0.06em" }}
+            >
+              1 · RÉCUPÈRE TA VIDÉO YOUTUBE
+            </span>
+          </div>
+          <p className="mb-3 text-sm text-white/70">
+            NeonCut ne peut pas télécharger YouTube directement (bloqué par le navigateur). Colle le
+            lien ci-dessous, on t'ouvre un téléchargeur externe en un clic.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="url"
+              inputMode="url"
+              maxLength={300}
+              placeholder="https://youtu.be/…"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value.slice(0, 300))}
+              className="flex-1 rounded-lg border border-white/15 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-[#39FF14] focus:outline-none"
+            />
+            <a
+              href={cobaltUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex items-center justify-center rounded-lg px-4 py-3 text-sm font-bold uppercase tracking-wider transition ${
+                ytValid ? "hover:brightness-110" : "cursor-not-allowed opacity-40"
+              }`}
+              style={{ backgroundColor: "#39FF14", color: "#050505" }}
+              onClick={(e) => {
+                if (!ytValid) e.preventDefault();
+              }}
+            >
+              Télécharger ↗
+            </a>
+          </div>
+          {youtubeUrl && !ytValid && (
+            <p className="mt-2 text-xs text-red-400">Lien YouTube invalide (youtube.com / youtu.be)</p>
+          )}
+
+          <details className="mt-4 group">
+            <summary className="cursor-pointer text-xs uppercase tracking-widest text-white/60 hover:text-[#39FF14]">
+              Guide pas à pas ▾
+            </summary>
+            <ol className="mt-3 space-y-2 text-sm text-white/70">
+              <li>
+                <span className="mr-2 font-bold text-[#39FF14]">1.</span>
+                Copie l'URL de la vidéo YouTube (barre d'adresse ou bouton "Partager").
+              </li>
+              <li>
+                <span className="mr-2 font-bold text-[#39FF14]">2.</span>
+                Colle-la dans le champ ci-dessus puis clique <b>Télécharger ↗</b>. Ça ouvre{" "}
+                <a
+                  href="https://cobalt.tools"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-[#39FF14]"
+                >
+                  cobalt.tools
+                </a>{" "}
+                (gratuit, sans pub, sans compte).
+              </li>
+              <li>
+                <span className="mr-2 font-bold text-[#39FF14]">3.</span>
+                Sur cobalt : choisis <b>Format : MP4</b> et <b>Qualité : 720p ou 1080p</b>, puis clique{" "}
+                <b>Download</b>.
+              </li>
+              <li>
+                <span className="mr-2 font-bold text-[#39FF14]">4.</span>
+                Alternative si cobalt ne marche pas :{" "}
+                <a
+                  href={ssyoutubeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-[#39FF14]"
+                >
+                  ssyoutube.com
+                </a>{" "}
+                (ajoute simplement <b>ss</b> devant "youtube" dans l'URL) ou{" "}
+                <a
+                  href="https://y2mate.nu"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-[#39FF14]"
+                >
+                  y2mate.nu
+                </a>
+                .
+              </li>
+              <li>
+                <span className="mr-2 font-bold text-[#39FF14]">5.</span>
+                Une fois le MP4 sur ton appareil, dépose-le dans la zone ci-dessous ⬇
+              </li>
+            </ol>
+            <p className="mt-3 text-xs text-white/40">
+              ⚠ Ne télécharge que des vidéos dont tu as les droits ou une licence Creative Commons.
+            </p>
+          </details>
+        </section>
+
         <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 backdrop-blur">
-          <label
+          <div
+            className="mb-4 text-xl"
+            style={{ fontFamily: "Bebas Neue, Impact, sans-serif", color: "#39FF14", letterSpacing: "0.06em" }}
+          >
+            2 · DÉPOSE LE FICHIER
+          </div>
+
             htmlFor="video-input"
             className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
             onDragOver={(e) => e.preventDefault()}
