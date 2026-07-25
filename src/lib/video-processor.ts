@@ -246,13 +246,45 @@ export function computeSegments(
 
 export type SegmentMetric = {
   index: number;
-  status: "pending" | "transcribing" | "rendering" | "done" | "error";
+  status: "pending" | "transcribing" | "rendering" | "done" | "error" | "retrying";
   transcribeMs?: number;
   renderMs?: number;
   cueCount?: number;
+  attempts?: number;
+  lastError?: string;
 };
 
 export type MetricsCallback = (m: SegmentMetric) => void;
+
+const MAX_ATTEMPTS = 3;
+
+async function retry<T>(
+  label: string,
+  fn: (attempt: number) => Promise<T>,
+  opts: {
+    maxAttempts?: number;
+    onRetry?: (attempt: number, err: Error) => void;
+    onLog?: (msg: string) => void;
+  } = {},
+): Promise<T> {
+  const max = opts.maxAttempts ?? MAX_ATTEMPTS;
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= max; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastErr = e as Error;
+      opts.onLog?.(`${label} — tentative ${attempt}/${max} échouée: ${lastErr.message}`);
+      if (attempt < max) {
+        opts.onRetry?.(attempt, lastErr);
+        // Exponential backoff with jitter: 400ms, 1200ms, 3600ms…
+        const wait = Math.min(6000, 400 * 3 ** (attempt - 1)) + Math.random() * 200;
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastErr ?? new Error(`${label} failed`);
+}
 
 export async function processVideo(opts: {
   file: File;
