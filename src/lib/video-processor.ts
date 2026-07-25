@@ -311,249 +311,179 @@ export async function processVideo(opts: {
   onShort?: (short: Short) => void;
   onMetric?: MetricsCallback;
   throttle?: ThrottleOptions;
+  poolSize?: number;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
-  onProgress({ phase: "Chargement du moteur vidéo" });
-  const ff = await getFFmpeg(onLog);
-
-  onProgress({ phase: "Lecture de la vidéo source" });
-  await ff.writeFile("input.mp4", await fetchFile(file));
+  const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
 
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
   const trim = opts.trim ?? { start: 0, end: durationSec };
   const segments = computeSegments(durationSec, segmentSec, trim, opts.customSegments);
   const totalSegments = segments.length;
+  if (totalSegments === 0) return [];
 
-  // Load requested font (and always keep Bebas around as fallback)
-  await ff.createDir("/fonts").catch(() => {});
+  onProgress({ phase: "Chargement de la vidéo en mémoire" });
+  const inputBytes = await file.arrayBuffer();
+
+  onProgress({ phase: `Chargement des polices` });
+  const fontsToLoad: Array<{ file: string; bytes: ArrayBuffer }> = [];
   const font = FONT_OPTIONS[style.fontKey];
-  onProgress({ phase: `Chargement de la police ${font.label}` });
-  const fontBytes = await loadFontBytes(font.url);
-  await ff.writeFile(`/fonts/${font.file}`, fontBytes.slice());
+  const primaryBytes = await loadFontBytes(font.url);
+  fontsToLoad.push({ file: font.file, bytes: primaryBytes.buffer.slice(0) });
   if (style.fontKey !== "bebas") {
     try {
       const bebasBytes = await loadFontBytes(FONT_OPTIONS.bebas.url);
-      await ff.writeFile(`/fonts/${FONT_OPTIONS.bebas.file}`, bebasBytes.slice());
-    } catch {
-      /* optional */
-    }
+      fontsToLoad.push({ file: FONT_OPTIONS.bebas.file, bytes: bebasBytes.buffer.slice(0) });
+    } catch { /* optional */ }
   }
+
+  onProgress({ phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})` });
+  const pool = await FFmpegPool.create({
+    size: desiredPoolSize,
+    inputBytes,
+    fonts: fontsToLoad,
+    onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
+  });
+
+  for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
 
   const shorts: Short[] = [];
   const fingerprint = sourceFingerprint(file);
+  let doneCount = 0;
 
-  // Pipeline: extract audio for segment i, immediately fire transcription
-  // (network I/O runs in parallel with subsequent ffmpeg work), then render.
-  // Both audio bytes and Gemini cues are cached in IndexedDB keyed on
-  // (file fingerprint + segment range) so relaunching a render skips both
-  // the FFmpeg extraction and the network round-trip.
-  const prepareTranscription = async (i: number): Promise<Cue[]> => {
+  const runOne = async (i: number) => {
     const seg = segments[i];
     const dur = seg.end - seg.start;
-    const audioName = `audio_${i}.webm`;
+    if (dur < 5) return;
     const t0 = performance.now();
+
+    // ── transcription (with cache) ────────────────────────────────────────────
     onMetric?.({ index: i, status: "transcribing" });
+    let cues: Cue[] = [];
     try {
-      // 1) Full cue cache hit — skip both extraction and network.
       const cachedCues = await getCachedCues(fingerprint, seg.start, seg.end);
       if (cachedCues) {
         onLog?.(`Cache hit (cues) segment ${i + 1}`);
-        onMetric?.({
-          index: i,
-          status: "rendering",
-          transcribeMs: performance.now() - t0,
-          cueCount: cachedCues.length,
-        });
-        return cachedCues;
-      }
-
-      // 2) Audio cache hit — skip extraction, still call Gemini.
-      let audioB64 = await getCachedAudio(fingerprint, seg.start, seg.end);
-      if (audioB64) {
-        onLog?.(`Cache hit (audio) segment ${i + 1}`);
+        cues = cachedCues;
       } else {
-        audioB64 = await retry(
-          `Extraction audio segment ${i + 1}`,
+        let audioB64 = await getCachedAudio(fingerprint, seg.start, seg.end);
+        if (audioB64) {
+          onLog?.(`Cache hit (audio) segment ${i + 1}`);
+        } else {
+          audioB64 = await retry(
+            `Extraction audio segment ${i + 1}`,
+            async (attempt) => {
+              if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+              const r = await pool.run<{ audioBase64: string }>((w) =>
+                w.send({ type: "extract", index: i, start: seg.start, duration: dur }),
+              );
+              return r.audioBase64;
+            },
+            { onLog },
+          );
+          void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
+        }
+        const r = await retry(
+          `Transcription segment ${i + 1}`,
           async (attempt) => {
             if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
-            await ff.exec([
-              "-ss", seg.start.toFixed(3),
-              "-i", "input.mp4",
-              "-t", dur.toFixed(3),
-              "-vn", "-ac", "1", "-ar", "16000",
-              "-c:a", "libopus", "-b:a", "16k",
-              "-y", audioName,
-            ]);
-            const audioData = (await ff.readFile(audioName)) as Uint8Array;
-            const b64 = uint8ToBase64(audioData);
-            await ff.deleteFile(audioName).catch(() => {});
-            return b64;
+            return geminiThrottle.run(() =>
+              transcribeSegment({
+                data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
+              }),
+            );
           },
           { onLog },
         );
-        // Persist audio for future runs (fire-and-forget)
-        void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
+        cues = r.cues;
+        void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
       }
+    } catch (e) {
+      onLog?.(`Transcription abandonnée segment ${i + 1}: ${(e as Error).message}`);
+      cues = [];
+    }
+    onMetric?.({
+      index: i,
+      status: "rendering",
+      transcribeMs: performance.now() - t0,
+      cueCount: cues.length,
+    });
 
-      // 3) Transcription with retry, then cache the cues on success.
-      return retry(
-        `Transcription segment ${i + 1}`,
+    // ── render (dispatched to any free worker) ────────────────────────────────
+    try {
+      const baseFilter = [
+        "[0:v]split=2[bg][fg]",
+        `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
+        `[fg]scale=${profile.width}:-2[fgs]`,
+        `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+      ];
+      const filter = [
+        ...baseFilter,
+        cues.length > 0 ? `[v]subtitles=subs_${i}.ass:fontsdir=/fonts[vout]` : "[v]null[vout]",
+      ].join(";");
+      const ass = buildAssFile(cues, dur, profile, style);
+
+      const renderT0 = performance.now();
+      const res = await retry(
+        `Rendu segment ${i + 1}`,
         async (attempt) => {
           if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
-          const r = await geminiThrottle.run(() =>
-            transcribeSegment({
-              data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
+          return pool.run<{ mp4: ArrayBuffer }>((w) =>
+            w.send({
+              type: "render",
+              index: i,
+              start: seg.start,
+              duration: dur,
+              ass,
+              hasCues: cues.length > 0,
+              filter,
+              crf: profile.crf,
+              audioBitrate: profile.audioBitrate,
             }),
           );
-          const ms = performance.now() - t0;
-          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length, attempts: attempt });
-          void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
-          return r.cues;
         },
         { onLog },
-      ).catch((e: unknown) => {
-        onLog?.(`Transcription abandonnée pour le segment ${i + 1} après reprises: ${(e as Error).message}`);
-        onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0, lastError: (e as Error).message });
-        return [] as Cue[];
+      );
+
+      const blob = new Blob([res.mp4], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      const short = { index: i, startSec: seg.start, endSec: seg.end, blob, url };
+      shorts.push(short);
+      onShort?.(short);
+      doneCount++;
+      onProgress({
+        phase: `Prêt ${doneCount}/${totalSegments}`,
+        segmentIndex: i,
+        totalSegments,
       });
+      onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
     } catch (e) {
-      onLog?.(`Extraction audio abandonnée pour segment ${i + 1}: ${(e as Error).message}`);
-      await ff.deleteFile(audioName).catch(() => {});
-      onMetric?.({ index: i, status: "rendering", cueCount: 0, lastError: (e as Error).message });
-      return [];
+      const msg = (e as Error).message;
+      onLog?.(`Segment ${i + 1} abandonné après reprises: ${msg}`);
+      onMetric?.({ index: i, status: "error", lastError: msg });
     }
   };
 
   try {
-    if (totalSegments === 0) return shorts;
-
-    // Emit initial pending metric for every segment so the dashboard shows all rows.
-    for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
-
-    // Parallelism: keep up to N transcriptions in flight ahead of the renderer.
-    // Each Gemini call is independent; running several in parallel hides the
-    // network round-trip even when rendering is faster than one call.
-    const LOOKAHEAD = 16;
-    const cuesPromises: Array<Promise<Cue[]> | undefined> = new Array(totalSegments);
-
-    // Audio extraction uses the shared ffmpeg instance, so serialize the
-    // extract step but let the network calls overlap freely afterwards.
-    let extractChain: Promise<void> = Promise.resolve();
-    const primeUpTo = (upto: number) => {
-      const limit = Math.min(totalSegments - 1, upto);
-      for (let k = 0; k <= limit; k++) {
-        if (cuesPromises[k]) continue;
-        const idx = k;
-        onProgress({
-          phase: `Transcription segment ${idx + 1}/${totalSegments}`,
-          segmentIndex: idx,
-          totalSegments,
-        });
-        cuesPromises[idx] = extractChain.then(() => prepareTranscription(idx));
-        extractChain = cuesPromises[idx]!.then(() => undefined).catch(() => undefined);
-      }
-    };
-
-    primeUpTo(LOOKAHEAD - 1);
-
-    for (let i = 0; i < totalSegments; i++) {
-      const seg = segments[i];
-      const start = seg.start;
-      const dur = seg.end - seg.start;
-      if (dur < 5) continue;
-
-      const assName = `subs_${i}.ass`;
-      const outName = `out_${i}.mp4`;
-
-      primeUpTo(i + LOOKAHEAD);
-      const cuesPromise = cuesPromises[i]!;
-
-      try {
-        const cues = await cuesPromise;
-
-        await ff.writeFile(
-          assName,
-          new TextEncoder().encode(buildAssFile(cues, dur, profile, style)),
-        );
-
-        onProgress({
-          phase: `Rendu ${profile.width}p segment ${i + 1}/${totalSegments}`,
-          segmentIndex: i,
-          totalSegments,
-        });
-
-        const renderT0 = performance.now();
-
-        const baseFilter = [
-          "[0:v]split=2[bg][fg]",
-          `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
-          `[fg]scale=${profile.width}:-2[fgs]`,
-          `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
-        ];
-        const filter = [
-          ...baseFilter,
-          cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]null[vout]",
-        ].join(";");
-
-        await retry(
-          `Rendu segment ${i + 1}`,
-          async (attempt) => {
-            if (attempt > 1) {
-              onMetric?.({ index: i, status: "retrying", attempts: attempt });
-              onProgress({
-                phase: `Reprise rendu segment ${i + 1}/${totalSegments} (essai ${attempt})`,
-                segmentIndex: i,
-                totalSegments,
-              });
-              // Clean any partial output before retrying
-              await ff.deleteFile(outName).catch(() => {});
-            }
-            await ff.exec([
-              "-ss", start.toFixed(3),
-              "-i", "input.mp4",
-              "-t", dur.toFixed(3),
-              "-filter_complex", filter,
-              "-map", "[vout]",
-              "-map", "0:a?",
-              "-c:v", "libx264",
-              "-preset", "ultrafast",
-              "-crf", profile.crf,
-              "-c:a", "aac",
-              "-b:a", profile.audioBitrate,
-              "-movflags", "+faststart",
-              "-y", outName,
-            ]);
-          },
-          { onLog },
-        );
-
-        const outData = (await ff.readFile(outName)) as Uint8Array;
-        const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-        const short = { index: i, startSec: start, endSec: start + dur, blob, url };
-        shorts.push(short);
-        onShort?.(short);
-        onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
-      } catch (e) {
-        // Failure after all retries: log, mark segment as errored, and CONTINUE
-        // so a single bad segment doesn't kill the entire pipeline.
-        const msg = (e as Error).message;
-        onLog?.(`Segment ${i + 1} abandonné après reprises: ${msg}`);
-        onMetric?.({ index: i, status: "error", lastError: msg });
-      } finally {
-        await ff.deleteFile(assName).catch(() => {});
-        await ff.deleteFile(outName).catch(() => {});
-      }
-    }
-
-    return shorts;
+    onProgress({
+      phase: `Rendu parallèle sur ${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""}`,
+      totalSegments,
+    });
+    // Fire every segment concurrently — the pool naturally serializes ffmpeg
+    // ops per worker, so at most `poolSize` extract/render calls run in
+    // parallel. Transcription runs on the main thread, gated by the Gemini
+    // throttle, and overlaps freely with worker work.
+    await Promise.all(segments.map((_, i) => runOne(i)));
+    return shorts.sort((a, b) => a.index - b.index);
   } finally {
-    await ff.deleteFile("input.mp4").catch(() => {});
+    pool.terminate();
   }
+}
+
 }
 
 
