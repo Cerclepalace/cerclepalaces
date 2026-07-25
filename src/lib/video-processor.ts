@@ -333,11 +333,11 @@ export async function processVideo(opts: {
   const fontsToLoad: Array<{ file: string; bytes: ArrayBuffer }> = [];
   const font = FONT_OPTIONS[style.fontKey];
   const primaryBytes = await loadFontBytes(font.url);
-  fontsToLoad.push({ file: font.file, bytes: primaryBytes.buffer.slice(0) });
+  fontsToLoad.push({ file: font.file, bytes: primaryBytes.slice().buffer as ArrayBuffer });
   if (style.fontKey !== "bebas") {
     try {
       const bebasBytes = await loadFontBytes(FONT_OPTIONS.bebas.url);
-      fontsToLoad.push({ file: FONT_OPTIONS.bebas.file, bytes: bebasBytes.buffer.slice(0) });
+      fontsToLoad.push({ file: FONT_OPTIONS.bebas.file, bytes: bebasBytes.slice().buffer as ArrayBuffer });
     } catch { /* optional */ }
   }
 
