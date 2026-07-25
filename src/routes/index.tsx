@@ -88,6 +88,8 @@ function Home() {
     return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
   });
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
 
   // Live clock while busy so throughput/ETA update in real time
   useEffect(() => {
@@ -167,6 +169,9 @@ function Home() {
   const run = useCallback(
     async (previewOnly = false) => {
       if (!file) return;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       setBusy(true);
       setError(null);
       setShorts([]);
@@ -190,6 +195,7 @@ function Home() {
           customSegments: custom,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          signal: controller.signal,
           onProgress: (info) => {
             setStatus(info.phase);
             if (info.segmentIndex !== undefined && info.totalSegments) {
@@ -215,14 +221,21 @@ function Home() {
             : `${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`,
         );
       } catch (e) {
-        setError((e as Error).message);
-        setStatus("");
+        if ((e as Error).name === "AbortedError" || controller.signal.aborted) {
+          setStatus("Traitement annulé");
+          setError(null);
+        } else {
+          setError((e as Error).message);
+          setStatus("");
+        }
       } finally {
+        if (abortRef.current === controller) abortRef.current = null;
         setBusy(false);
         setProgress(null);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+
     [
       file,
       renderMode,
@@ -951,15 +964,29 @@ function Home() {
               >
                 {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
               </Button>
-              <Button
-                type="button"
-                onClick={() => run(true)}
-                disabled={!file || busy}
-                variant="outline"
-                className="h-14 border-[#39FF14]/60 bg-transparent text-base font-bold uppercase tracking-widest text-[#39FF14] hover:bg-[#39FF14]/10 hover:text-[#39FF14] disabled:opacity-40"
-              >
-                ⚡ Aperçu 8s
-              </Button>
+              {busy ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    setStatus("Annulation…");
+                  }}
+                  className="h-14 border border-red-500/60 bg-red-500/10 text-base font-bold uppercase tracking-widest text-red-300 hover:bg-red-500/20"
+                >
+                  ⏹ Annuler
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => run(true)}
+                  disabled={!file}
+                  variant="outline"
+                  className="h-14 border-[#39FF14]/60 bg-transparent text-base font-bold uppercase tracking-widest text-[#39FF14] hover:bg-[#39FF14]/10 hover:text-[#39FF14] disabled:opacity-40"
+                >
+                  ⚡ Aperçu 8s
+                </Button>
+              )}
+
             </div>
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs text-white/40">

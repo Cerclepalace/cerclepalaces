@@ -271,6 +271,17 @@ export type MetricsCallback = (m: SegmentMetric) => void;
 
 const MAX_ATTEMPTS = 3;
 
+export class AbortedError extends Error {
+  constructor(message = "Traitement annulé") {
+    super(message);
+    this.name = "AbortedError";
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new AbortedError();
+}
+
 async function retry<T>(
   label: string,
   fn: (attempt: number) => Promise<T>,
@@ -278,19 +289,21 @@ async function retry<T>(
     maxAttempts?: number;
     onRetry?: (attempt: number, err: Error) => void;
     onLog?: (msg: string) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const max = opts.maxAttempts ?? MAX_ATTEMPTS;
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= max; attempt++) {
+    throwIfAborted(opts.signal);
     try {
       return await fn(attempt);
     } catch (e) {
       lastErr = e as Error;
+      if (lastErr instanceof AbortedError || opts.signal?.aborted) throw lastErr;
       opts.onLog?.(`${label} — tentative ${attempt}/${max} échouée: ${lastErr.message}`);
       if (attempt < max) {
         opts.onRetry?.(attempt, lastErr);
-        // Exponential backoff with jitter: 400ms, 1200ms, 3600ms…
         const wait = Math.min(6000, 400 * 3 ** (attempt - 1)) + Math.random() * 200;
         await new Promise((r) => setTimeout(r, wait));
       }
@@ -298,6 +311,7 @@ async function retry<T>(
   }
   throw lastErr ?? new Error(`${label} failed`);
 }
+
 
 export async function processVideo(opts: {
   file: File;
@@ -312,13 +326,15 @@ export async function processVideo(opts: {
   onMetric?: MetricsCallback;
   throttle?: ThrottleOptions;
   poolSize?: number;
+  signal?: AbortSignal;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
 
+  throwIfAborted(signal);
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
   const trim = opts.trim ?? { start: 0, end: durationSec };
@@ -326,8 +342,10 @@ export async function processVideo(opts: {
   const totalSegments = segments.length;
   if (totalSegments === 0) return [];
 
+  throwIfAborted(signal);
   onProgress({ phase: "Chargement de la vidéo en mémoire" });
   const inputBytes = await file.arrayBuffer();
+
 
   onProgress({ phase: `Chargement des polices` });
   const fontsToLoad: Array<{ file: string; bytes: ArrayBuffer }> = [];
@@ -341,6 +359,7 @@ export async function processVideo(opts: {
     } catch { /* optional */ }
   }
 
+  throwIfAborted(signal);
   onProgress({ phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})` });
   const pool = await FFmpegPool.create({
     size: desiredPoolSize,
@@ -349,6 +368,17 @@ export async function processVideo(opts: {
     onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
   });
 
+  // Kill the pool as soon as the caller aborts — this rejects every in-flight
+  // worker send with "pool terminated" and unblocks Promise.all below.
+  const onAbort = () => {
+    onLog?.("Annulation demandée — arrêt des workers");
+    pool.terminate();
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+
   for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
 
   const shorts: Short[] = [];
@@ -356,10 +386,12 @@ export async function processVideo(opts: {
   let doneCount = 0;
 
   const runOne = async (i: number) => {
+    if (signal?.aborted) return;
     const seg = segments[i];
     const dur = seg.end - seg.start;
     if (dur < 5) return;
     const t0 = performance.now();
+
 
     // ── transcription (with cache) ────────────────────────────────────────────
     onMetric?.({ index: i, status: "transcribing" });
@@ -383,7 +415,8 @@ export async function processVideo(opts: {
               );
               return r.audioBase64;
             },
-            { onLog },
+            { onLog, signal },
+
           );
           void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
         }
@@ -397,7 +430,8 @@ export async function processVideo(opts: {
               }),
             );
           },
-          { onLog },
+          { onLog, signal },
+
         );
         cues = r.cues;
         void setCachedCues(fingerprint, seg.start, seg.end, r.cues).catch(() => {});
@@ -446,7 +480,7 @@ export async function processVideo(opts: {
             }),
           );
         },
-        { onLog },
+        { onLog, signal },
       );
 
       const blob = new Blob([res.mp4], { type: "video/mp4" });
@@ -463,26 +497,30 @@ export async function processVideo(opts: {
       onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
     } catch (e) {
       const msg = (e as Error).message;
+      if (e instanceof AbortedError || signal?.aborted) {
+        onMetric?.({ index: i, status: "error", lastError: "Annulé" });
+        return;
+      }
       onLog?.(`Segment ${i + 1} abandonné après reprises: ${msg}`);
       onMetric?.({ index: i, status: "error", lastError: msg });
     }
   };
+
 
   try {
     onProgress({
       phase: `Rendu parallèle sur ${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""}`,
       totalSegments,
     });
-    // Fire every segment concurrently — the pool naturally serializes ffmpeg
-    // ops per worker, so at most `poolSize` extract/render calls run in
-    // parallel. Transcription runs on the main thread, gated by the Gemini
-    // throttle, and overlaps freely with worker work.
     await Promise.all(segments.map((_, i) => runOne(i)));
+    throwIfAborted(signal);
     return shorts.sort((a, b) => a.index - b.index);
   } finally {
+    if (signal) signal.removeEventListener("abort", onAbort);
     pool.terminate();
   }
 }
+
 
 
 
