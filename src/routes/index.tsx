@@ -227,6 +227,8 @@ function Home() {
       duration,
       manualMode,
       manualText,
+      maxConcurrent,
+      rpm,
     ],
   );
 
