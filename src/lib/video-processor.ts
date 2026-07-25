@@ -38,14 +38,14 @@ export const FONT_OPTIONS: Record<
   montserrat: {
     label: "Montserrat Black",
     assName: "Montserrat",
-    file: "Montserrat-Black.ttf",
-    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Black.ttf",
+    file: "Montserrat.ttf",
+    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf",
   },
   impact: {
-    label: "Impact (Oswald Bold)",
+    label: "Impact (Oswald)",
     assName: "Oswald",
-    file: "Oswald-Bold.ttf",
-    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/static/Oswald-Bold.ttf",
+    file: "Oswald.ttf",
+    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/Oswald%5Bwght%5D.ttf",
   },
 };
 
