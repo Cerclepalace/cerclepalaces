@@ -512,16 +512,15 @@ export async function processVideo(opts: {
       phase: `Rendu parallèle sur ${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""}`,
       totalSegments,
     });
-    // Fire every segment concurrently — the pool naturally serializes ffmpeg
-    // ops per worker, so at most `poolSize` extract/render calls run in
-    // parallel. Transcription runs on the main thread, gated by the Gemini
-    // throttle, and overlaps freely with worker work.
     await Promise.all(segments.map((_, i) => runOne(i)));
+    throwIfAborted(signal);
     return shorts.sort((a, b) => a.index - b.index);
   } finally {
+    if (signal) signal.removeEventListener("abort", onAbort);
     pool.terminate();
   }
 }
+
 
 
 
