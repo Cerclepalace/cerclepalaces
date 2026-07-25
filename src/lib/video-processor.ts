@@ -550,7 +550,10 @@ export async function processVideo(opts: {
     return shorts;
   } finally {
     await ff.deleteFile("input.mp4").catch(() => {});
+  }
 }
+
+
 
 
 /**
