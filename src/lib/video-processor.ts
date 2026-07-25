@@ -1,6 +1,14 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
+import {
+  getCachedAudio,
+  setCachedAudio,
+  getCachedCues,
+  setCachedCues,
+  sourceFingerprint,
+} from "./segment-cache";
+export { clearSegmentCache } from "./segment-cache";
 
 const CORE_VERSION = "0.12.10";
 const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
