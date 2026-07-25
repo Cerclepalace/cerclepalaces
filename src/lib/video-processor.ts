@@ -306,9 +306,11 @@ export async function processVideo(opts: {
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
   onMetric?: MetricsCallback;
+  throttle?: ThrottleOptions;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   onProgress({ phase: "Chargement du moteur vidéo" });
   const ff = await getFFmpeg(onLog);
