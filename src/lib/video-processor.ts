@@ -408,6 +408,8 @@ export async function processVideo(opts: {
           totalSegments,
         });
 
+        const renderT0 = performance.now();
+
         const baseFilter = [
           "[0:v]split=2[bg][fg]",
           `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
@@ -454,6 +456,10 @@ export async function processVideo(opts: {
         const short = { index: i, startSec: start, endSec: start + dur, blob, url };
         shorts.push(short);
         onShort?.(short);
+        onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
+      } catch (e) {
+        onMetric?.({ index: i, status: "error" });
+        throw e;
       } finally {
         await ff.deleteFile(assName).catch(() => {});
         await ff.deleteFile(outName).catch(() => {});
