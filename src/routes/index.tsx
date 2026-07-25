@@ -33,7 +33,16 @@ function Home() {
   const [shorts, setShorts] = useState<Short[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
+  const cobaltUrl = ytValid
+    ? `https://cobalt.tools/#${encodeURIComponent(youtubeUrl.trim())}`
+    : "https://cobalt.tools";
+  const ssyoutubeUrl = ytValid
+    ? youtubeUrl.trim().replace(/youtube\.com|youtu\.be/i, "ssyoutube.com")
+    : "https://ssyoutube.com";
 
   const handleFile = (f: File | null) => {
     if (!f) return;
