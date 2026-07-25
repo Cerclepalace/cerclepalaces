@@ -244,6 +244,16 @@ export function computeSegments(
   return out;
 }
 
+export type SegmentMetric = {
+  index: number;
+  status: "pending" | "transcribing" | "rendering" | "done" | "error";
+  transcribeMs?: number;
+  renderMs?: number;
+  cueCount?: number;
+};
+
+export type MetricsCallback = (m: SegmentMetric) => void;
+
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
@@ -254,8 +264,9 @@ export async function processVideo(opts: {
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
+  onMetric?: MetricsCallback;
 }): Promise<Short[]> {
-  const { file, segmentSec, onProgress, onLog, onShort, style } = opts;
+  const { file, segmentSec, onProgress, onLog, onShort, onMetric, style } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
 
   onProgress({ phase: "Chargement du moteur vidéo" });
@@ -295,6 +306,8 @@ export async function processVideo(opts: {
     const seg = segments[i];
     const dur = seg.end - seg.start;
     const audioName = `audio_${i}.webm`;
+    const t0 = performance.now();
+    onMetric?.({ index: i, status: "transcribing" });
     try {
       await ff.exec([
         "-ss",
@@ -322,20 +335,29 @@ export async function processVideo(opts: {
       return transcribeSegment({
         data: { audioBase64: audioB64, mimeType: "audio/webm", durationSec: dur },
       })
-        .then((r) => r.cues)
+        .then((r) => {
+          const ms = performance.now() - t0;
+          onMetric?.({ index: i, status: "rendering", transcribeMs: ms, cueCount: r.cues.length });
+          return r.cues;
+        })
         .catch((e: unknown) => {
           onLog?.(`Transcription failed for segment ${i}: ${(e as Error).message}`);
+          onMetric?.({ index: i, status: "rendering", transcribeMs: performance.now() - t0, cueCount: 0 });
           return [] as Cue[];
         });
     } catch (e) {
       onLog?.(`Audio extract failed for segment ${i}: ${(e as Error).message}`);
       await ff.deleteFile(audioName).catch(() => {});
+      onMetric?.({ index: i, status: "error" });
       return [];
     }
   };
 
   try {
     if (totalSegments === 0) return shorts;
+
+    // Emit initial pending metric for every segment so the dashboard shows all rows.
+    for (let k = 0; k < totalSegments; k++) onMetric?.({ index: k, status: "pending" });
 
     // Parallelism: keep up to N transcriptions in flight ahead of the renderer.
     // Each Gemini call is independent; running several in parallel hides the
@@ -389,6 +411,8 @@ export async function processVideo(opts: {
           totalSegments,
         });
 
+        const renderT0 = performance.now();
+
         const baseFilter = [
           "[0:v]split=2[bg][fg]",
           `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
@@ -435,6 +459,10 @@ export async function processVideo(opts: {
         const short = { index: i, startSec: start, endSec: start + dur, blob, url };
         shorts.push(short);
         onShort?.(short);
+        onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
+      } catch (e) {
+        onMetric?.({ index: i, status: "error" });
+        throw e;
       } finally {
         await ff.deleteFile(assName).catch(() => {});
         await ff.deleteFile(outName).catch(() => {});
