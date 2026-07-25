@@ -9,6 +9,7 @@ import {
   type FontKey,
   type SubtitlePosition,
   type SegmentRange,
+  type SegmentMetric,
 } from "@/lib/video-processor";
 import { Button } from "@/components/ui/button";
 
