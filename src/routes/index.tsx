@@ -852,3 +852,153 @@ function Home() {
     </div>
   );
 }
+
+function Dashboard({
+  metrics,
+  runStartMs,
+  nowMs,
+  busy,
+  doneCount,
+}: {
+  metrics: Record<number, SegmentMetric>;
+  runStartMs: number | null;
+  nowMs: number;
+  busy: boolean;
+  doneCount: number;
+}) {
+  const rows = Object.values(metrics).sort((a, b) => a.index - b.index);
+  if (rows.length === 0) return null;
+
+  const total = rows.length;
+  const done = rows.filter((r) => r.status === "done").length;
+  const rendering = rows.filter((r) => r.status === "rendering").length;
+  const transcribing = rows.filter((r) => r.status === "transcribing").length;
+  const errors = rows.filter((r) => r.status === "error").length;
+
+  const transcribeTimes = rows.map((r) => r.transcribeMs).filter((x): x is number => typeof x === "number");
+  const renderTimes = rows.map((r) => r.renderMs).filter((x): x is number => typeof x === "number");
+  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+  const avgTranscribe = avg(transcribeTimes);
+  const avgRender = avg(renderTimes);
+
+  const elapsedSec = runStartMs ? Math.max(0.001, (nowMs - runStartMs) / 1000) : 0;
+  const shortsPerMin = elapsedSec > 0 ? (doneCount / elapsedSec) * 60 : 0;
+  const remaining = Math.max(0, total - done);
+  const etaSec = shortsPerMin > 0 ? (remaining / shortsPerMin) * 60 : 0;
+
+  const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
+  const fmtEta = (s: number) => {
+    if (!isFinite(s) || s <= 0) return "—";
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  };
+
+  const statusColor: Record<SegmentMetric["status"], string> = {
+    pending: "bg-white/10 text-white/40",
+    transcribing: "bg-blue-500/20 text-blue-300",
+    rendering: "bg-yellow-500/20 text-yellow-300",
+    done: "bg-[#39FF14]/20 text-[#39FF14]",
+    error: "bg-red-500/20 text-red-300",
+  };
+  const statusLabel: Record<SegmentMetric["status"], string> = {
+    pending: "En attente",
+    transcribing: "Transcription",
+    rendering: "Rendu",
+    done: "Prêt",
+    error: "Erreur",
+  };
+
+  const pctDone = total > 0 ? (done / total) * 100 : 0;
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-black/50 p-4">
+      <div
+        className="mb-3 text-sm uppercase tracking-widest text-white/60"
+        style={{ fontFamily: "Bebas Neue, Impact, sans-serif", letterSpacing: "0.12em" }}
+      >
+        Tableau de bord
+      </div>
+
+      {/* KPI grid */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Kpi label="Débit" value={`${shortsPerMin.toFixed(1)}`} unit="shorts/min" />
+        <Kpi label="Progression" value={`${done}/${total}`} unit={`${pctDone.toFixed(0)}%`} />
+        <Kpi label="Latence trans." value={fmtMs(avgTranscribe)} unit={`n=${transcribeTimes.length}`} />
+        <Kpi label="Latence rendu" value={fmtMs(avgRender)} unit={`n=${renderTimes.length}`} />
+      </div>
+
+      {/* Bar */}
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full transition-all"
+          style={{
+            width: `${pctDone}%`,
+            backgroundColor: "#39FF14",
+            boxShadow: "0 0 12px rgba(57,255,20,0.6)",
+          }}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
+        <span>⏱ Écoulé : {fmtEta(elapsedSec)}</span>
+        <span>⌛ ETA : {busy ? fmtEta(etaSec) : "—"}</span>
+        <span>🎬 Rendu en cours : {rendering}</span>
+        <span>🗣 Transcriptions : {transcribing}</span>
+        {errors > 0 && <span className="text-red-300">⚠ Erreurs : {errors}</span>}
+      </div>
+
+      {/* Per-segment table */}
+      <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-white/5">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 bg-black/80 text-white/40">
+            <tr>
+              <th className="px-2 py-1.5 font-medium">#</th>
+              <th className="px-2 py-1.5 font-medium">Statut</th>
+              <th className="px-2 py-1.5 text-right font-medium">Transcription</th>
+              <th className="px-2 py-1.5 text-right font-medium">Rendu</th>
+              <th className="px-2 py-1.5 text-right font-medium">Cues</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.index} className="border-t border-white/5">
+                <td className="px-2 py-1.5 font-mono text-white/60">{r.index + 1}</td>
+                <td className="px-2 py-1.5">
+                  <span
+                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${statusColor[r.status]}`}
+                  >
+                    {statusLabel[r.status]}
+                  </span>
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                  {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-white/70">
+                  {r.renderMs ? fmtMs(r.renderMs) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-white/50">
+                  {r.cueCount ?? "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-widest text-white/40">{label}</div>
+      <div
+        className="mt-0.5 text-xl leading-none"
+        style={{ fontFamily: "Bebas Neue, Impact, sans-serif", color: "#39FF14" }}
+      >
+        {value}
+      </div>
+      {unit && <div className="mt-1 text-[10px] text-white/40">{unit}</div>}
+    </div>
+  );
+}
