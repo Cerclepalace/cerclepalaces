@@ -550,8 +550,173 @@ export async function processVideo(opts: {
     return shorts;
   } finally {
     await ff.deleteFile("input.mp4").catch(() => {});
+}
+
+
+/**
+ * Re-runs the full pipeline (audio extraction → transcription → render) for a
+ * single segment. Used by the dashboard "Relancer" action when a segment ended
+ * up in error state. Reuses the cache and shared FFmpeg instance.
+ */
+export async function retrySegment(opts: {
+  file: File;
+  segment: SegmentRange;
+  index: number;
+  renderMode?: RenderMode;
+  style: SubtitleStyle;
+  throttle?: ThrottleOptions;
+  onProgress?: ProgressCallback;
+  onLog?: (msg: string) => void;
+  onShort?: (short: Short) => void;
+  onMetric?: MetricsCallback;
+}): Promise<Short | null> {
+  const { file, segment, index: i, style, onProgress, onLog, onShort, onMetric } = opts;
+  const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  if (opts.throttle) geminiThrottle.configure(opts.throttle);
+
+  onProgress?.({ phase: `Reprise segment ${i + 1}` });
+  const ff = await getFFmpeg(onLog);
+
+  // Ensure input.mp4 & fonts are present (previous run may have cleaned them).
+  try {
+    await ff.readFile("input.mp4");
+  } catch {
+    await ff.writeFile("input.mp4", await fetchFile(file));
+  }
+  await ff.createDir("/fonts").catch(() => {});
+  const font = FONT_OPTIONS[style.fontKey];
+  try {
+    await ff.readFile(`/fonts/${font.file}`);
+  } catch {
+    const fontBytes = await loadFontBytes(font.url);
+    await ff.writeFile(`/fonts/${font.file}`, fontBytes.slice());
+  }
+
+  const fingerprint = sourceFingerprint(file);
+  const dur = segment.end - segment.start;
+  const audioName = `audio_${i}.webm`;
+  const assName = `subs_${i}.ass`;
+  const outName = `out_${i}.mp4`;
+
+  onMetric?.({ index: i, status: "transcribing" });
+  const t0 = performance.now();
+
+  let cues: Cue[] = [];
+  try {
+    const cached = await getCachedCues(fingerprint, segment.start, segment.end);
+    if (cached) {
+      cues = cached;
+      onLog?.(`Cache hit (cues) segment ${i + 1}`);
+    } else {
+      let audioB64 = await getCachedAudio(fingerprint, segment.start, segment.end);
+      if (!audioB64) {
+        audioB64 = await retry(
+          `Extraction audio segment ${i + 1}`,
+          async () => {
+            await ff.exec([
+              "-ss", segment.start.toFixed(3),
+              "-i", "input.mp4",
+              "-t", dur.toFixed(3),
+              "-vn", "-ac", "1", "-ar", "16000",
+              "-c:a", "libopus", "-b:a", "16k",
+              "-y", audioName,
+            ]);
+            const audioData = (await ff.readFile(audioName)) as Uint8Array;
+            const b64 = uint8ToBase64(audioData);
+            await ff.deleteFile(audioName).catch(() => {});
+            return b64;
+          },
+          { onLog },
+        );
+        void setCachedAudio(fingerprint, segment.start, segment.end, audioB64).catch(() => {});
+      }
+
+      const r = await retry(
+        `Transcription segment ${i + 1}`,
+        () =>
+          geminiThrottle.run(() =>
+            transcribeSegment({
+              data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
+            }),
+          ),
+        { onLog },
+      );
+      cues = r.cues;
+      void setCachedCues(fingerprint, segment.start, segment.end, r.cues).catch(() => {});
+    }
+  } catch (e) {
+    onLog?.(`Transcription abandonnée pour le segment ${i + 1}: ${(e as Error).message}`);
+    cues = [];
+  }
+
+  onMetric?.({
+    index: i,
+    status: "rendering",
+    transcribeMs: performance.now() - t0,
+    cueCount: cues.length,
+  });
+
+  try {
+    await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur, profile, style)));
+
+    const baseFilter = [
+      "[0:v]split=2[bg][fg]",
+      `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
+      `[fg]scale=${profile.width}:-2[fgs]`,
+      `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+    ];
+    const filter = [
+      ...baseFilter,
+      cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]null[vout]",
+    ].join(";");
+
+    const renderT0 = performance.now();
+    await retry(
+      `Rendu segment ${i + 1}`,
+      async (attempt) => {
+        if (attempt > 1) {
+          onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          await ff.deleteFile(outName).catch(() => {});
+        }
+        await ff.exec([
+          "-ss", segment.start.toFixed(3),
+          "-i", "input.mp4",
+          "-t", dur.toFixed(3),
+          "-filter_complex", filter,
+          "-map", "[vout]",
+          "-map", "0:a?",
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-crf", profile.crf,
+          "-c:a", "aac",
+          "-b:a", profile.audioBitrate,
+          "-movflags", "+faststart",
+          "-y", outName,
+        ]);
+      },
+      { onLog },
+    );
+
+    const outData = (await ff.readFile(outName)) as Uint8Array;
+    const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
+    const url = URL.createObjectURL(blob);
+    const short = { index: i, startSec: segment.start, endSec: segment.end, blob, url };
+    onShort?.(short);
+    onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
+    return short;
+  } catch (e) {
+    const msg = (e as Error).message;
+    onLog?.(`Reprise segment ${i + 1} échouée: ${msg}`);
+    onMetric?.({ index: i, status: "error", lastError: msg });
+    return null;
+  } finally {
+    await ff.deleteFile(assName).catch(() => {});
+    await ff.deleteFile(outName).catch(() => {});
   }
 }
+
+
+
 
 
 export async function probeDuration(file: File): Promise<number> {
