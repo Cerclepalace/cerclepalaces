@@ -468,24 +468,31 @@ function Home() {
               onChange={(e) => setYoutubeUrl(e.target.value.slice(0, 300))}
               className="flex-1 rounded-lg border border-white/15 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-[#39FF14] focus:outline-none"
             />
-            <a
-              href={cobaltUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={importFromYoutube}
+              disabled={!ytValid || ytLoading || busy}
               className={`inline-flex items-center justify-center rounded-lg px-4 py-3 text-sm font-bold uppercase tracking-wider transition ${
-                ytValid ? "hover:brightness-110" : "cursor-not-allowed opacity-40"
+                ytValid && !ytLoading && !busy ? "hover:brightness-110" : "cursor-not-allowed opacity-40"
               }`}
               style={{ backgroundColor: "#39FF14", color: "#050505" }}
-              onClick={(e) => {
-                if (!ytValid) e.preventDefault();
-              }}
             >
-              Télécharger ↗
-            </a>
+              {ytLoading
+                ? ytProgress != null
+                  ? `Import ${Math.round(ytProgress * 100)}%`
+                  : "Import…"
+                : "Importer en MP4"}
+            </button>
           </div>
           {youtubeUrl && !ytValid && (
             <p className="mt-2 text-xs text-red-400">Lien YouTube invalide (youtube.com / youtu.be)</p>
           )}
+          {ytLoading && (
+            <p className="mt-2 text-xs text-white/60">
+              Conversion en cours via Piped (instance publique). Ça peut prendre 20-60 s selon la vidéo…
+            </p>
+          )}
+
 
           <details className="mt-4 group">
             <summary className="cursor-pointer text-xs uppercase tracking-widest text-white/60 hover:text-[#39FF14]">
