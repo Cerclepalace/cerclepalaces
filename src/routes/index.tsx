@@ -184,6 +184,7 @@ function Home() {
     }
   };
 
+  const parseManual = (): SegmentRange[] => {
     return manualText
       .split(/\n+/)
       .map((line) => line.trim())
