@@ -76,6 +76,8 @@ function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [ytLoading, setYtLoading] = useState(false);
+  const [ytProgress, setYtProgress] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
   const [runStartMs, setRunStartMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
