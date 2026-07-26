@@ -139,7 +139,51 @@ function Home() {
     }
   };
 
-  const parseManual = (): SegmentRange[] => {
+  const importFromYoutube = async () => {
+    if (!ytValid || ytLoading) return;
+    setError(null);
+    setYtLoading(true);
+    setYtProgress(0);
+    try {
+      const res = await fetch(`/api/youtube-mp4?url=${encodeURIComponent(youtubeUrl.trim())}`);
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      const disp = res.headers.get("content-disposition") ?? "";
+      const nameMatch = disp.match(/filename="?([^";]+)"?/i);
+      const filename = nameMatch?.[1] ?? "youtube-video.mp4";
+      const total = Number(res.headers.get("content-length") ?? 0);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Réponse vide");
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          received += value.byteLength;
+          if (total) setYtProgress(Math.min(1, received / total));
+        }
+      }
+      const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
+      const f = new File([blob], filename, { type: "video/mp4" });
+      await handleFile(f);
+    } catch (e) {
+      setError(`Import YouTube échoué: ${(e as Error).message}`);
+    } finally {
+      setYtLoading(false);
+      setYtProgress(null);
+    }
+  };
+
     return manualText
       .split(/\n+/)
       .map((line) => line.trim())
