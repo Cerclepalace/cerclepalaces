@@ -76,6 +76,8 @@ function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [ytLoading, setYtLoading] = useState(false);
+  const [ytProgress, setYtProgress] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
   const [runStartMs, setRunStartMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -134,6 +136,51 @@ function Home() {
       setTrimEnd(d);
     } catch {
       setDuration(0);
+    }
+  };
+
+  const importFromYoutube = async () => {
+    if (!ytValid || ytLoading) return;
+    setError(null);
+    setYtLoading(true);
+    setYtProgress(0);
+    try {
+      const res = await fetch(`/api/youtube-mp4?url=${encodeURIComponent(youtubeUrl.trim())}`);
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      const disp = res.headers.get("content-disposition") ?? "";
+      const nameMatch = disp.match(/filename="?([^";]+)"?/i);
+      const filename = nameMatch?.[1] ?? "youtube-video.mp4";
+      const total = Number(res.headers.get("content-length") ?? 0);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Réponse vide");
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          received += value.byteLength;
+          if (total) setYtProgress(Math.min(1, received / total));
+        }
+      }
+      const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
+      const f = new File([blob], filename, { type: "video/mp4" });
+      await handleFile(f);
+    } catch (e) {
+      setError(`Import YouTube échoué: ${(e as Error).message}`);
+    } finally {
+      setYtLoading(false);
+      setYtProgress(null);
     }
   };
 
@@ -421,24 +468,31 @@ function Home() {
               onChange={(e) => setYoutubeUrl(e.target.value.slice(0, 300))}
               className="flex-1 rounded-lg border border-white/15 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-[#39FF14] focus:outline-none"
             />
-            <a
-              href={cobaltUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={importFromYoutube}
+              disabled={!ytValid || ytLoading || busy}
               className={`inline-flex items-center justify-center rounded-lg px-4 py-3 text-sm font-bold uppercase tracking-wider transition ${
-                ytValid ? "hover:brightness-110" : "cursor-not-allowed opacity-40"
+                ytValid && !ytLoading && !busy ? "hover:brightness-110" : "cursor-not-allowed opacity-40"
               }`}
               style={{ backgroundColor: "#39FF14", color: "#050505" }}
-              onClick={(e) => {
-                if (!ytValid) e.preventDefault();
-              }}
             >
-              Télécharger ↗
-            </a>
+              {ytLoading
+                ? ytProgress != null
+                  ? `Import ${Math.round(ytProgress * 100)}%`
+                  : "Import…"
+                : "Importer en MP4"}
+            </button>
           </div>
           {youtubeUrl && !ytValid && (
             <p className="mt-2 text-xs text-red-400">Lien YouTube invalide (youtube.com / youtu.be)</p>
           )}
+          {ytLoading && (
+            <p className="mt-2 text-xs text-white/60">
+              Conversion en cours via Piped (instance publique). Ça peut prendre 20-60 s selon la vidéo…
+            </p>
+          )}
+
 
           <details className="mt-4 group">
             <summary className="cursor-pointer text-xs uppercase tracking-widest text-white/60 hover:text-[#39FF14]">
