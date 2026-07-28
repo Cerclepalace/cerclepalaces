@@ -466,7 +466,9 @@ export async function processVideo(opts: {
               filter,
               crf: profile.crf,
               audioBitrate: profile.audioBitrate,
+              preset: profile.preset,
             }),
+
           );
         },
         { onLog, signal },
@@ -649,7 +651,7 @@ export async function retrySegment(opts: {
           "-map", "[vout]",
           "-map", "0:a?",
           "-c:v", "libx264",
-          "-preset", "ultrafast",
+          "-preset", profile.preset,
           "-crf", profile.crf,
           "-c:a", "aac",
           "-b:a", profile.audioBitrate,
