@@ -302,6 +302,9 @@ function Home() {
       duration,
       manualMode,
       manualText,
+      smart,
+      smartCount,
+
       maxConcurrent,
       rpm,
       poolSize,
