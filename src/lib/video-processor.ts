@@ -334,7 +334,8 @@ export async function processVideo(opts: {
     onProgress({ phase: "Détection des moments forts (buzz)" });
     try {
       effectiveCustom = await detectBuzzHighlights(file, trim, segmentSec, opts.smartCount ?? 8, onLog);
-      onLog?.(`Buzz: ${effectiveCustom.length} moments détectés`);
+      onLog?.(`Buzz: ${effectiveCustom?.length ?? 0} moments détectés`);
+
     } catch (e) {
       onLog?.(`Détection buzz échouée, fallback découpe séquentielle: ${(e as Error).message}`);
       effectiveCustom = undefined;
@@ -703,6 +704,7 @@ export async function probeDuration(file: File): Promise<number> {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
     v.preload = "metadata";
+
     v.onloadedmetadata = () => {
       URL.revokeObjectURL(url);
       resolve(v.duration || 0);
