@@ -35,7 +35,9 @@ type RenderMsg = {
   filter: string;
   crf: string;
   audioBitrate: string;
+  preset?: string;
 };
+
 
 type Incoming = InitMsg | ExtractMsg | RenderMsg;
 
@@ -121,8 +123,9 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
           "-map", "[vout]",
           "-map", "0:a?",
           "-c:v", "libx264",
-          "-preset", "ultrafast",
+          "-preset", msg.preset ?? "ultrafast",
           "-crf", msg.crf,
+
           "-c:a", "aac",
           "-b:a", msg.audioBitrate,
           "-movflags", "+faststart",
