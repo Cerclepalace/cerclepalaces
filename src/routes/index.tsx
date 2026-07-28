@@ -892,21 +892,17 @@ function Home() {
 
             <div className="mb-4">
               <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Vitesse de rendu</div>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
                 <Button
                   type="button"
                   variant={renderMode === "fast" ? "default" : "ghost"}
                   onClick={() => setRenderMode("fast")}
                   disabled={busy}
                   className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={
-                    renderMode === "fast"
-                      ? { backgroundColor: "#39FF14", color: "#050505" }
-                      : undefined
-                  }
+                  style={renderMode === "fast" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
                 >
-                  <span className="text-sm font-bold uppercase tracking-wider">Rapide mobile</span>
-                  <span className="text-xs font-normal opacity-70">720×1280 · plus léger</span>
+                  <span className="text-sm font-bold uppercase tracking-wider">Rapide</span>
+                  <span className="text-xs font-normal opacity-70">720p · léger</span>
                 </Button>
                 <Button
                   type="button"
@@ -914,16 +910,24 @@ function Home() {
                   onClick={() => setRenderMode("quality")}
                   disabled={busy}
                   className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={
-                    renderMode === "quality"
-                      ? { backgroundColor: "#39FF14", color: "#050505" }
-                      : undefined
-                  }
+                  style={renderMode === "quality" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
                 >
                   <span className="text-sm font-bold uppercase tracking-wider">Qualité</span>
-                  <span className="text-xs font-normal opacity-70">1080×1920 · plus lent</span>
+                  <span className="text-xs font-normal opacity-70">1080p · CRF 26</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={renderMode === "premium" ? "default" : "ghost"}
+                  onClick={() => setRenderMode("premium")}
+                  disabled={busy}
+                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
+                  style={renderMode === "premium" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
+                >
+                  <span className="text-sm font-bold uppercase tracking-wider">Premium ✦</span>
+                  <span className="text-xs font-normal opacity-70">1080p · CRF 19 · 192k</span>
                 </Button>
               </div>
+
             </div>
 
             <div className="mb-4">
