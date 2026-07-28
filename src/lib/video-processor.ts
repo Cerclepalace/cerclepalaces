@@ -27,7 +27,7 @@ export type ProgressCallback = (info: {
   progress?: number;
 }) => void;
 
-export type RenderMode = "fast" | "quality";
+export type RenderMode = "fast" | "quality" | "premium";
 
 export type FontKey = "bebas" | "anton" | "montserrat" | "impact";
 
@@ -85,38 +85,27 @@ type RenderProfile = {
   crf: string;
   audioBitrate: string;
   fps: number;
+  preset: string;
 };
 
 const RENDER_PROFILES: Record<RenderMode, RenderProfile> = {
   fast: {
-    width: 720,
-    height: 1280,
-    bgWidth: 360,
-    bgHeight: 640,
-    blur: "10:1",
-    fontSize: 64,
-    outline: 4,
-    shadow: 3,
-    marginV: 175,
-    crf: "32",
-    audioBitrate: "96k",
-    fps: 30,
+    width: 720, height: 1280, bgWidth: 360, bgHeight: 640,
+    blur: "10:1", fontSize: 64, outline: 4, shadow: 3, marginV: 175,
+    crf: "32", audioBitrate: "96k", fps: 30, preset: "ultrafast",
   },
   quality: {
-    width: 1080,
-    height: 1920,
-    bgWidth: 540,
-    bgHeight: 960,
-    blur: "14:1",
-    fontSize: 96,
-    outline: 6,
-    shadow: 4,
-    marginV: 260,
-    crf: "28",
-    audioBitrate: "128k",
-    fps: 30,
+    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
+    blur: "14:1", fontSize: 96, outline: 6, shadow: 4, marginV: 260,
+    crf: "26", audioBitrate: "128k", fps: 30, preset: "veryfast",
+  },
+  premium: {
+    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
+    blur: "18:2", fontSize: 104, outline: 7, shadow: 5, marginV: 280,
+    crf: "19", audioBitrate: "192k", fps: 30, preset: "medium",
   },
 };
+
 
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (ffmpegInstance) return ffmpegInstance;
