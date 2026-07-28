@@ -69,7 +69,10 @@ function Home() {
   const [outlineColor, setOutlineColor] = useState("#39FF14");
   const [position, setPosition] = useState<SubtitlePosition>("bottom");
   const [manualMode, setManualMode] = useState(false);
+  const [smart, setSmart] = useState(false);
+  const [smartCount, setSmartCount] = useState(8);
   const [manualText, setManualText] = useState("");
+
   const [status, setStatus] = useState<string>("");
   const [progress, setProgress] = useState<{ i: number; total: number } | null>(null);
   const [shorts, setShorts] = useState<Short[]>([]);
@@ -240,8 +243,11 @@ function Home() {
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
+          smart: previewOnly ? false : smart,
+          smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+
           signal: controller.signal,
           onProgress: (info) => {
             setStatus(info.phase);
