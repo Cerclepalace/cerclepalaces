@@ -69,7 +69,10 @@ function Home() {
   const [outlineColor, setOutlineColor] = useState("#39FF14");
   const [position, setPosition] = useState<SubtitlePosition>("bottom");
   const [manualMode, setManualMode] = useState(false);
+  const [smart, setSmart] = useState(false);
+  const [smartCount, setSmartCount] = useState(8);
   const [manualText, setManualText] = useState("");
+
   const [status, setStatus] = useState<string>("");
   const [progress, setProgress] = useState<{ i: number; total: number } | null>(null);
   const [shorts, setShorts] = useState<Short[]>([]);
@@ -240,8 +243,11 @@ function Home() {
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
+          smart: previewOnly ? false : smart,
+          smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+
           signal: controller.signal,
           onProgress: (info) => {
             setStatus(info.phase);
@@ -296,6 +302,9 @@ function Home() {
       duration,
       manualMode,
       manualText,
+      smart,
+      smartCount,
+
       maxConcurrent,
       rpm,
       poolSize,
@@ -757,28 +766,57 @@ function Home() {
             </div>
 
             {/* MODE */}
-            <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
+            <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
               <Button
                 type="button"
-                variant={!manualMode ? "default" : "ghost"}
-                onClick={() => setManualMode(false)}
+                variant={!manualMode && !smart ? "default" : "ghost"}
+                onClick={() => { setManualMode(false); setSmart(false); }}
                 disabled={busy}
                 className="h-auto py-2"
-                style={!manualMode ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
+                style={!manualMode && !smart ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
               >
                 Auto
               </Button>
               <Button
                 type="button"
+                variant={smart ? "default" : "ghost"}
+                onClick={() => { setManualMode(false); setSmart(true); }}
+                disabled={busy}
+                className="h-auto py-2"
+                style={smart ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
+              >
+                Smart buzz ✦
+              </Button>
+              <Button
+                type="button"
                 variant={manualMode ? "default" : "ghost"}
-                onClick={() => setManualMode(true)}
+                onClick={() => { setManualMode(true); setSmart(false); }}
                 disabled={busy}
                 className="h-auto py-2"
                 style={manualMode ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
               >
-                Segments manuels
+                Manuel
               </Button>
             </div>
+            {smart && (
+              <div className="mb-4 rounded-lg border border-[#39FF14]/30 bg-[#39FF14]/[0.05] p-3 text-xs text-white/70">
+                Analyse l'audio pour repérer les pics d'énergie (rires, cris, punchlines, musique) et
+                extrait les meilleurs moments. Ajuste le nombre de shorts ci-dessous.
+                <div className="mt-3 flex items-center gap-3">
+                  <label className="uppercase tracking-widest text-white/60">Shorts max</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={smartCount}
+                    onChange={(e) => setSmartCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                    disabled={busy}
+                    className="w-20 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
+                  />
+                </div>
+              </div>
+            )}
+
 
             {!manualMode ? (
               <>
@@ -892,21 +930,17 @@ function Home() {
 
             <div className="mb-4">
               <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Vitesse de rendu</div>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
                 <Button
                   type="button"
                   variant={renderMode === "fast" ? "default" : "ghost"}
                   onClick={() => setRenderMode("fast")}
                   disabled={busy}
                   className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={
-                    renderMode === "fast"
-                      ? { backgroundColor: "#39FF14", color: "#050505" }
-                      : undefined
-                  }
+                  style={renderMode === "fast" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
                 >
-                  <span className="text-sm font-bold uppercase tracking-wider">Rapide mobile</span>
-                  <span className="text-xs font-normal opacity-70">720×1280 · plus léger</span>
+                  <span className="text-sm font-bold uppercase tracking-wider">Rapide</span>
+                  <span className="text-xs font-normal opacity-70">720p · léger</span>
                 </Button>
                 <Button
                   type="button"
@@ -914,16 +948,24 @@ function Home() {
                   onClick={() => setRenderMode("quality")}
                   disabled={busy}
                   className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={
-                    renderMode === "quality"
-                      ? { backgroundColor: "#39FF14", color: "#050505" }
-                      : undefined
-                  }
+                  style={renderMode === "quality" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
                 >
                   <span className="text-sm font-bold uppercase tracking-wider">Qualité</span>
-                  <span className="text-xs font-normal opacity-70">1080×1920 · plus lent</span>
+                  <span className="text-xs font-normal opacity-70">1080p · CRF 26</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={renderMode === "premium" ? "default" : "ghost"}
+                  onClick={() => setRenderMode("premium")}
+                  disabled={busy}
+                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
+                  style={renderMode === "premium" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
+                >
+                  <span className="text-sm font-bold uppercase tracking-wider">Premium ✦</span>
+                  <span className="text-xs font-normal opacity-70">1080p · CRF 19 · 192k</span>
                 </Button>
               </div>
+
             </div>
 
             <div className="mb-4">

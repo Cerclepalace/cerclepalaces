@@ -27,7 +27,7 @@ export type ProgressCallback = (info: {
   progress?: number;
 }) => void;
 
-export type RenderMode = "fast" | "quality";
+export type RenderMode = "fast" | "quality" | "premium";
 
 export type FontKey = "bebas" | "anton" | "montserrat" | "impact";
 
@@ -85,38 +85,27 @@ type RenderProfile = {
   crf: string;
   audioBitrate: string;
   fps: number;
+  preset: string;
 };
 
 const RENDER_PROFILES: Record<RenderMode, RenderProfile> = {
   fast: {
-    width: 720,
-    height: 1280,
-    bgWidth: 360,
-    bgHeight: 640,
-    blur: "10:1",
-    fontSize: 64,
-    outline: 4,
-    shadow: 3,
-    marginV: 175,
-    crf: "32",
-    audioBitrate: "96k",
-    fps: 30,
+    width: 720, height: 1280, bgWidth: 360, bgHeight: 640,
+    blur: "10:1", fontSize: 64, outline: 4, shadow: 3, marginV: 175,
+    crf: "32", audioBitrate: "96k", fps: 30, preset: "ultrafast",
   },
   quality: {
-    width: 1080,
-    height: 1920,
-    bgWidth: 540,
-    bgHeight: 960,
-    blur: "14:1",
-    fontSize: 96,
-    outline: 6,
-    shadow: 4,
-    marginV: 260,
-    crf: "28",
-    audioBitrate: "128k",
-    fps: 30,
+    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
+    blur: "14:1", fontSize: 96, outline: 6, shadow: 4, marginV: 260,
+    crf: "26", audioBitrate: "128k", fps: 30, preset: "veryfast",
+  },
+  premium: {
+    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
+    blur: "18:2", fontSize: 104, outline: 7, shadow: 5, marginV: 280,
+    crf: "19", audioBitrate: "192k", fps: 30, preset: "medium",
   },
 };
+
 
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (ffmpegInstance) return ffmpegInstance;
@@ -320,6 +309,8 @@ export async function processVideo(opts: {
   style: SubtitleStyle;
   trim?: { start: number; end: number };
   customSegments?: SegmentRange[];
+  smart?: boolean;
+  smartCount?: number;
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
@@ -338,9 +329,22 @@ export async function processVideo(opts: {
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
   const trim = opts.trim ?? { start: 0, end: durationSec };
-  const segments = computeSegments(durationSec, segmentSec, trim, opts.customSegments);
+  let effectiveCustom = opts.customSegments;
+  if (opts.smart && (!effectiveCustom || effectiveCustom.length === 0)) {
+    onProgress({ phase: "Détection des moments forts (buzz)" });
+    try {
+      effectiveCustom = await detectBuzzHighlights(file, trim, segmentSec, opts.smartCount ?? 8, onLog);
+      onLog?.(`Buzz: ${effectiveCustom?.length ?? 0} moments détectés`);
+
+    } catch (e) {
+      onLog?.(`Détection buzz échouée, fallback découpe séquentielle: ${(e as Error).message}`);
+      effectiveCustom = undefined;
+    }
+  }
+  const segments = computeSegments(durationSec, segmentSec, trim, effectiveCustom);
   const totalSegments = segments.length;
   if (totalSegments === 0) return [];
+
 
   throwIfAborted(signal);
   onProgress({ phase: "Chargement de la vidéo en mémoire" });
@@ -477,7 +481,9 @@ export async function processVideo(opts: {
               filter,
               crf: profile.crf,
               audioBitrate: profile.audioBitrate,
+              preset: profile.preset,
             }),
+
           );
         },
         { onLog, signal },
@@ -660,7 +666,7 @@ export async function retrySegment(opts: {
           "-map", "[vout]",
           "-map", "0:a?",
           "-c:v", "libx264",
-          "-preset", "ultrafast",
+          "-preset", profile.preset,
           "-crf", profile.crf,
           "-c:a", "aac",
           "-b:a", profile.audioBitrate,
@@ -698,6 +704,7 @@ export async function probeDuration(file: File): Promise<number> {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
     v.preload = "metadata";
+
     v.onloadedmetadata = () => {
       URL.revokeObjectURL(url);
       resolve(v.duration || 0);
@@ -717,4 +724,94 @@ function uint8ToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+/**
+ * Detect "buzz" highlights by extracting a low-bitrate mono track, decoding it
+ * via WebAudio, scoring rolling windows on loudness + variance, and returning
+ * the top-K non-overlapping windows of length `segmentSec` inside `trim`.
+ */
+async function detectBuzzHighlights(
+  file: File,
+  trim: { start: number; end: number },
+  segmentSec: number,
+  topK: number,
+  onLog?: (msg: string) => void,
+): Promise<SegmentRange[]> {
+  const total = Math.max(0, trim.end - trim.start);
+  if (total < segmentSec * 1.5) {
+    return [{ start: trim.start, end: Math.min(trim.end, trim.start + segmentSec) }];
+  }
+
+  const ff = await getFFmpeg(onLog);
+  try {
+    await ff.readFile("input.mp4");
+  } catch {
+    await ff.writeFile("input.mp4", await fetchFile(file));
+  }
+  const outName = "buzz_scan.wav";
+  await ff.exec([
+    "-ss", trim.start.toFixed(3),
+    "-i", "input.mp4",
+    "-t", total.toFixed(3),
+    "-vn", "-ac", "1", "-ar", "8000",
+    "-c:a", "pcm_s16le",
+    "-y", outName,
+  ]);
+  const wav = (await ff.readFile(outName)) as Uint8Array;
+  await ff.deleteFile(outName).catch(() => {});
+
+  const AudioCtx: typeof OfflineAudioContext =
+    (window as unknown as { OfflineAudioContext: typeof OfflineAudioContext }).OfflineAudioContext ??
+    (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+  const ctx = new AudioCtx(1, 8000, 8000);
+  const audio = await ctx.decodeAudioData(wav.slice().buffer as ArrayBuffer);
+  const samples = audio.getChannelData(0);
+  const sr = audio.sampleRate;
+
+  // 1-second RMS bins
+  const binSize = sr;
+  const bins = Math.floor(samples.length / binSize);
+  const rms = new Float32Array(bins);
+  for (let i = 0; i < bins; i++) {
+    let sum = 0;
+    for (let j = 0; j < binSize; j++) {
+      const v = samples[i * binSize + j];
+      sum += v * v;
+    }
+    rms[i] = Math.sqrt(sum / binSize);
+  }
+
+  // Score each candidate window (step = 2s) by mean + std dev of RMS.
+  const winSec = Math.round(segmentSec);
+  const step = 2;
+  type Cand = { start: number; score: number };
+  const cands: Cand[] = [];
+  for (let s = 0; s + winSec <= bins; s += step) {
+    let sum = 0;
+    for (let i = s; i < s + winSec; i++) sum += rms[i];
+    const mean = sum / winSec;
+    let varSum = 0;
+    for (let i = s; i < s + winSec; i++) {
+      const d = rms[i] - mean;
+      varSum += d * d;
+    }
+    const std = Math.sqrt(varSum / winSec);
+    cands.push({ start: s, score: mean * 0.7 + std * 0.6 });
+  }
+  cands.sort((a, b) => b.score - a.score);
+
+  // Greedy non-overlap selection.
+  const picks: number[] = [];
+  const minGap = Math.max(5, Math.floor(winSec * 0.5));
+  for (const c of cands) {
+    if (picks.length >= topK) break;
+    if (picks.every((p) => Math.abs(p - c.start) >= winSec - minGap)) picks.push(c.start);
+  }
+  picks.sort((a, b) => a - b);
+
+  return picks.map((s) => ({
+    start: trim.start + s,
+    end: Math.min(trim.end, trim.start + s + winSec),
+  }));
 }
