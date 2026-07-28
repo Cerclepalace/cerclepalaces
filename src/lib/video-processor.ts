@@ -309,6 +309,8 @@ export async function processVideo(opts: {
   style: SubtitleStyle;
   trim?: { start: number; end: number };
   customSegments?: SegmentRange[];
+  smart?: boolean;
+  smartCount?: number;
   onProgress: ProgressCallback;
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
@@ -327,9 +329,21 @@ export async function processVideo(opts: {
   onProgress({ phase: "Analyse de la durée" });
   const durationSec = await probeDuration(file);
   const trim = opts.trim ?? { start: 0, end: durationSec };
-  const segments = computeSegments(durationSec, segmentSec, trim, opts.customSegments);
+  let effectiveCustom = opts.customSegments;
+  if (opts.smart && (!effectiveCustom || effectiveCustom.length === 0)) {
+    onProgress({ phase: "Détection des moments forts (buzz)" });
+    try {
+      effectiveCustom = await detectBuzzHighlights(file, trim, segmentSec, opts.smartCount ?? 8, onLog);
+      onLog?.(`Buzz: ${effectiveCustom.length} moments détectés`);
+    } catch (e) {
+      onLog?.(`Détection buzz échouée, fallback découpe séquentielle: ${(e as Error).message}`);
+      effectiveCustom = undefined;
+    }
+  }
+  const segments = computeSegments(durationSec, segmentSec, trim, effectiveCustom);
   const totalSegments = segments.length;
   if (totalSegments === 0) return [];
+
 
   throwIfAborted(signal);
   onProgress({ phase: "Chargement de la vidéo en mémoire" });
