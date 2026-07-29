@@ -250,6 +250,9 @@ function Home() {
           smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          wordByWord,
+          brandedFrame,
+          zoomPunch,
 
           signal: controller.signal,
           onProgress: (info) => {
