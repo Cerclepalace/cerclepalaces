@@ -350,6 +350,52 @@ async function retry<T>(
 }
 
 
+function buildVideoFilter(
+  profile: RenderProfile,
+  hasCues: boolean,
+  assName: string,
+  brandedFrame: boolean,
+  zoomPunch: boolean,
+): string {
+  const fgScale = zoomPunch
+    // Subtle continuous zoom (1.00 -> 1.06 over ~5s loops) for kinetic feel.
+    ? `[fg]scale=${profile.width}:-2,zoompan=z='min(zoom+0.0006,1.06)':d=1:s=${profile.width}x${profile.height}:fps=${profile.fps}[fgs]`
+    : `[fg]scale=${profile.width}:-2[fgs]`;
+  const base = [
+    "[0:v]split=2[bg][fg]",
+    `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
+    fgScale,
+    `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+  ];
+  const subLabel = hasCues ? "[vs]" : "[vs]";
+  base.push(hasCues ? `[v]subtitles=${assName}:fontsdir=/fonts${subLabel}` : `[v]null${subLabel}`);
+  if (brandedFrame) {
+    // Yellow TikTokBoost signature frame (thick border, glow via double drawbox).
+    base.push(
+      `[vs]drawbox=x=0:y=0:w=iw:h=ih:color=0xFFE500@0.25:t=16,drawbox=x=6:y=6:w=iw-12:h=ih-12:color=0xFFE500@0.95:t=8[vout]`,
+    );
+  } else {
+    base.push(`[vs]null[vout]`);
+  }
+  return base.join(";");
+}
+
+function computeQualityScore(cues: Cue[], durationSec: number): number {
+  if (durationSec <= 0) return 0;
+  const cueCount = cues.length;
+  const density = cueCount / durationSec; // ~0.4-1.5 is ideal
+  let densityScore = 0;
+  if (density >= 0.35 && density <= 1.6) densityScore = 40;
+  else if (density > 0) densityScore = Math.max(10, 40 - Math.abs(density - 0.8) * 30);
+  const words = cues.flatMap((c) => c.text.split(/\s+/).filter(Boolean));
+  const power = words.filter(isPowerWord).length;
+  const powerScore = Math.min(25, power * 3);
+  const durScore = durationSec >= 45 && durationSec <= 85 ? 20 : 10;
+  const base = cueCount > 0 ? 15 : 0;
+  return Math.round(Math.max(0, Math.min(100, densityScore + powerScore + durScore + base)));
+}
+
+
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
