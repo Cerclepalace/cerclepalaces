@@ -1188,6 +1188,23 @@ function Home() {
                     <div className="absolute top-2 left-2 rounded-full bg-black/70 px-2 py-0.5 text-xs">
                       #{s.index + 1}
                     </div>
+                    {typeof s.qualityScore === "number" && (
+                      <div
+                        className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                        style={{
+                          backgroundColor:
+                            s.qualityScore >= 75 ? "#39FF14" : s.qualityScore >= 55 ? "#FFE500" : "#FF6B6B",
+                          color: "#050505",
+                          boxShadow:
+                            s.qualityScore >= 75
+                              ? "0 0 10px rgba(57,255,20,0.6)"
+                              : "0 0 8px rgba(0,0,0,0.4)",
+                        }}
+                        title={`Quality Score — cues: ${s.cueCount ?? 0}`}
+                      >
+                        {s.qualityScore}/100
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-between p-3 text-xs">
                     <span className="text-white/50">
