@@ -314,6 +314,9 @@ function Home() {
       maxConcurrent,
       rpm,
       poolSize,
+      wordByWord,
+      brandedFrame,
+      zoomPunch,
     ],
   );
 
