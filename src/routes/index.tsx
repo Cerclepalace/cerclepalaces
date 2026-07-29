@@ -1059,6 +1059,32 @@ function Home() {
               </div>
             </div>
 
+            <div className="mb-4">
+              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Style Premium TikTokBoost</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <ToggleTile
+                  active={wordByWord}
+                  disabled={busy}
+                  onClick={() => setWordByWord((v) => !v)}
+                  title="Mot par mot"
+                  desc="Sous-titres pop-in, mots-clés jaunes"
+                />
+                <ToggleTile
+                  active={brandedFrame}
+                  disabled={busy}
+                  onClick={() => setBrandedFrame((v) => !v)}
+                  title="Cadre jaune ✦"
+                  desc="Bordure signature TikTokBoost"
+                />
+                <ToggleTile
+                  active={zoomPunch}
+                  disabled={busy}
+                  onClick={() => setZoomPunch((v) => !v)}
+                  title="Zoom kinétique"
+                  desc="Léger zoom continu (+30% rendu)"
+                />
+              </div>
+            </div>
 
 
 
