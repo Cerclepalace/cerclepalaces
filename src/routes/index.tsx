@@ -367,6 +367,9 @@ function Home() {
           renderMode,
           style: { fontKey, textColor, outlineColor, position },
           throttle: { maxConcurrent, rpm },
+          wordByWord,
+          brandedFrame,
+          zoomPunch,
           onMetric: (m) => {
             setMetrics((prev) => {
               const existing = prev[m.index];
