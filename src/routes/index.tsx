@@ -86,6 +86,9 @@ function Home() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
+  const [wordByWord, setWordByWord] = useState(true);
+  const [brandedFrame, setBrandedFrame] = useState(true);
+  const [zoomPunch, setZoomPunch] = useState(false);
   const [poolSize, setPoolSize] = useState(() => {
     if (typeof navigator === "undefined") return 2;
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
