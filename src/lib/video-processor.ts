@@ -553,17 +553,8 @@ export async function processVideo(opts: {
 
     // ── render (dispatched to any free worker) ────────────────────────────────
     try {
-      const baseFilter = [
-        "[0:v]split=2[bg][fg]",
-        `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
-        `[fg]scale=${profile.width}:-2[fgs]`,
-        `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
-      ];
-      const filter = [
-        ...baseFilter,
-        cues.length > 0 ? `[v]subtitles=subs_${i}.ass:fontsdir=/fonts[vout]` : "[v]null[vout]",
-      ].join(";");
-      const ass = buildAssFile(cues, dur, profile, style);
+      const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch);
+      const ass = buildAssFile(cues, dur, profile, style, wordByWord);
 
       const renderT0 = performance.now();
       const res = await retry(
@@ -591,7 +582,8 @@ export async function processVideo(opts: {
 
       const blob = new Blob([res.mp4], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
-      const short = { index: i, startSec: seg.start, endSec: seg.end, blob, url };
+      const qualityScore = computeQualityScore(cues, dur);
+      const short = { index: i, startSec: seg.start, endSec: seg.end, blob, url, qualityScore, cueCount: cues.length };
       shorts.push(short);
       onShort?.(short);
       doneCount++;
