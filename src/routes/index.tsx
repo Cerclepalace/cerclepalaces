@@ -1232,6 +1232,43 @@ function Home() {
   );
 }
 
+function ToggleTile({
+  active,
+  disabled,
+  onClick,
+  title,
+  desc,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-lg border p-3 text-left transition disabled:opacity-40 ${
+        active
+          ? "border-[#39FF14] bg-[#39FF14]/10"
+          : "border-white/10 bg-black/30 hover:border-white/30"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold uppercase tracking-wider">{title}</span>
+        <span
+          className={`h-4 w-4 rounded-full border ${
+            active ? "border-[#39FF14] bg-[#39FF14]" : "border-white/30"
+          }`}
+        />
+      </div>
+      <div className="mt-1 text-[11px] text-white/60">{desc}</div>
+    </button>
+  );
+}
+
 function Dashboard({
   metrics,
   runStartMs,
