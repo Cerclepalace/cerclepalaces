@@ -641,9 +641,15 @@ export async function retrySegment(opts: {
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
   onMetric?: MetricsCallback;
+  wordByWord?: boolean;
+  brandedFrame?: boolean;
+  zoomPunch?: boolean;
 }): Promise<Short | null> {
   const { file, segment, index: i, style, onProgress, onLog, onShort, onMetric } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const wordByWord = opts.wordByWord ?? true;
+  const brandedFrame = opts.brandedFrame ?? false;
+  const zoomPunch = opts.zoomPunch ?? false;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   onProgress?.({ phase: `Reprise segment ${i + 1}` });
