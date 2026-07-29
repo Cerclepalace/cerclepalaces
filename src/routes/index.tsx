@@ -417,6 +417,9 @@ function Home() {
       position,
       maxConcurrent,
       rpm,
+      wordByWord,
+      brandedFrame,
+      zoomPunch,
     ],
   );
 
