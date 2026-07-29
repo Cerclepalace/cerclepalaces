@@ -72,6 +72,18 @@ export type SubtitleStyle = {
 
 export type SegmentRange = { start: number; end: number };
 
+// Mots à mettre en jaune pour créer des "power words" façon TikTok.
+// Détection : mots >=6 lettres, chiffres, ou finissant par !/?
+const POWER_WORD_ACCENT = "#FFE500";
+function isPowerWord(w: string): boolean {
+  const clean = w.replace(/[^\p{L}\p{N}!?]/gu, "");
+  if (!clean) return false;
+  if (/\d/.test(clean)) return true;
+  if (/[!?]$/.test(clean)) return true;
+  const letters = clean.replace(/[^\p{L}]/gu, "");
+  return letters.length >= 6;
+}
+
 type RenderProfile = {
   width: number;
   height: number;
