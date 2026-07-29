@@ -86,6 +86,9 @@ function Home() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
+  const [wordByWord, setWordByWord] = useState(true);
+  const [brandedFrame, setBrandedFrame] = useState(true);
+  const [zoomPunch, setZoomPunch] = useState(false);
   const [poolSize, setPoolSize] = useState(() => {
     if (typeof navigator === "undefined") return 2;
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -247,6 +250,9 @@ function Home() {
           smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          wordByWord,
+          brandedFrame,
+          zoomPunch,
 
           signal: controller.signal,
           onProgress: (info) => {
@@ -308,6 +314,9 @@ function Home() {
       maxConcurrent,
       rpm,
       poolSize,
+      wordByWord,
+      brandedFrame,
+      zoomPunch,
     ],
   );
 
@@ -358,6 +367,9 @@ function Home() {
           renderMode,
           style: { fontKey, textColor, outlineColor, position },
           throttle: { maxConcurrent, rpm },
+          wordByWord,
+          brandedFrame,
+          zoomPunch,
           onMetric: (m) => {
             setMetrics((prev) => {
               const existing = prev[m.index];
@@ -405,6 +417,9 @@ function Home() {
       position,
       maxConcurrent,
       rpm,
+      wordByWord,
+      brandedFrame,
+      zoomPunch,
     ],
   );
 
@@ -1044,6 +1059,32 @@ function Home() {
               </div>
             </div>
 
+            <div className="mb-4">
+              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Style Premium TikTokBoost</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <ToggleTile
+                  active={wordByWord}
+                  disabled={busy}
+                  onClick={() => setWordByWord((v) => !v)}
+                  title="Mot par mot"
+                  desc="Sous-titres pop-in, mots-clés jaunes"
+                />
+                <ToggleTile
+                  active={brandedFrame}
+                  disabled={busy}
+                  onClick={() => setBrandedFrame((v) => !v)}
+                  title="Cadre jaune ✦"
+                  desc="Bordure signature TikTokBoost"
+                />
+                <ToggleTile
+                  active={zoomPunch}
+                  disabled={busy}
+                  onClick={() => setZoomPunch((v) => !v)}
+                  title="Zoom kinétique"
+                  desc="Léger zoom continu (+30% rendu)"
+                />
+              </div>
+            </div>
 
 
 
@@ -1147,6 +1188,23 @@ function Home() {
                     <div className="absolute top-2 left-2 rounded-full bg-black/70 px-2 py-0.5 text-xs">
                       #{s.index + 1}
                     </div>
+                    {typeof s.qualityScore === "number" && (
+                      <div
+                        className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                        style={{
+                          backgroundColor:
+                            s.qualityScore >= 75 ? "#39FF14" : s.qualityScore >= 55 ? "#FFE500" : "#FF6B6B",
+                          color: "#050505",
+                          boxShadow:
+                            s.qualityScore >= 75
+                              ? "0 0 10px rgba(57,255,20,0.6)"
+                              : "0 0 8px rgba(0,0,0,0.4)",
+                        }}
+                        title={`Quality Score — cues: ${s.cueCount ?? 0}`}
+                      >
+                        {s.qualityScore}/100
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-between p-3 text-xs">
                     <span className="text-white/50">
@@ -1171,6 +1229,43 @@ function Home() {
         </footer>
       </main>
     </div>
+  );
+}
+
+function ToggleTile({
+  active,
+  disabled,
+  onClick,
+  title,
+  desc,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-lg border p-3 text-left transition disabled:opacity-40 ${
+        active
+          ? "border-[#39FF14] bg-[#39FF14]/10"
+          : "border-white/10 bg-black/30 hover:border-white/30"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold uppercase tracking-wider">{title}</span>
+        <span
+          className={`h-4 w-4 rounded-full border ${
+            active ? "border-[#39FF14] bg-[#39FF14]" : "border-white/30"
+          }`}
+        />
+      </div>
+      <div className="mt-1 text-[11px] text-white/60">{desc}</div>
+    </button>
   );
 }
 

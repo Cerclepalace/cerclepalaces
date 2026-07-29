@@ -72,6 +72,18 @@ export type SubtitleStyle = {
 
 export type SegmentRange = { start: number; end: number };
 
+// Mots à mettre en jaune pour créer des "power words" façon TikTok.
+// Détection : mots >=6 lettres, chiffres, ou finissant par !/?
+const POWER_WORD_ACCENT = "#FFE500";
+function isPowerWord(w: string): boolean {
+  const clean = w.replace(/[^\p{L}\p{N}!?]/gu, "");
+  if (!clean) return false;
+  if (/\d/.test(clean)) return true;
+  if (/[!?]$/.test(clean)) return true;
+  const letters = clean.replace(/[^\p{L}]/gu, "");
+  return letters.length >= 6;
+}
+
 type RenderProfile = {
   width: number;
   height: number;
@@ -155,17 +167,42 @@ function marginVFor(pos: SubtitlePosition, profile: RenderProfile): number {
   return profile.marginV;
 }
 
+// ASS inline color code (BGR): {\c&H00BBGGRR&}
+function assInlineColor(hex: string): string {
+  const c = hex.replace("#", "").padStart(6, "0").slice(0, 6);
+  const r = c.slice(0, 2), g = c.slice(2, 4), b = c.slice(4, 6);
+  return `&H00${b}${g}${r}&`.toUpperCase();
+}
+
+function fmtAssTime(t: number, durationSec: number): string {
+  const clamped = Math.max(0, Math.min(durationSec, t));
+  const h = Math.floor(clamped / 3600);
+  const m = Math.floor((clamped % 3600) / 60);
+  const s = Math.floor(clamped % 60);
+  const cs = Math.floor((clamped - Math.floor(clamped)) * 100);
+  return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
+}
+
+function escapeAss(t: string) {
+  return t.replace(/\\/g, "\\\\").replace(/\{/g, "(").replace(/\}/g, ")").replace(/\n/g, " ");
+}
+
 function buildAssFile(
   cues: Cue[],
   durationSec: number,
   profile: RenderProfile,
   style: SubtitleStyle,
+  wordByWord: boolean,
 ): string {
   const font = FONT_OPTIONS[style.fontKey];
   const primary = hexToAss(style.textColor);
   const outline = hexToAss(style.outlineColor);
   const alignment = alignmentFor(style.position);
   const marginV = marginVFor(style.position, profile);
+  const accent = assInlineColor(POWER_WORD_ACCENT);
+  const primaryInline = assInlineColor(style.textColor);
+  // In karaoke/word mode, boost size ~18% for punch.
+  const size = wordByWord ? Math.round(profile.fontSize * 1.18) : profile.fontSize;
 
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -176,32 +213,41 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Neon,${font.assName},${profile.fontSize},${primary},${primary},${outline},${outline},1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},${alignment},60,60,${marginV},1
+Style: Neon,${font.assName},${size},${primary},${primary},${outline},${outline},1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},${alignment},60,60,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-  const fmtTime = (t: number): string => {
-    const clamped = Math.max(0, Math.min(durationSec, t));
-    const h = Math.floor(clamped / 3600);
-    const m = Math.floor((clamped % 3600) / 60);
-    const s = Math.floor(clamped % 60);
-    const cs = Math.floor((clamped - Math.floor(clamped)) * 100);
-    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
-  };
-
-  const escape = (t: string) =>
-    t.replace(/\\/g, "\\\\").replace(/\{/g, "(").replace(/\}/g, ")").replace(/\n/g, " ");
-
-  const events = cues
-    .map(
-      (c) =>
-        `Dialogue: 0,${fmtTime(c.start)},${fmtTime(c.end)},Neon,,0,0,0,,{\\blur1.2}${escape(c.text)}`,
-    )
-    .join("\n");
-
-  return header + events + "\n";
+  const lines: string[] = [];
+  for (const c of cues) {
+    if (!wordByWord) {
+      lines.push(
+        `Dialogue: 0,${fmtAssTime(c.start, durationSec)},${fmtAssTime(c.end, durationSec)},Neon,,0,0,0,,{\\blur1.2}${escapeAss(c.text)}`,
+      );
+      continue;
+    }
+    const words = c.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const totalDur = Math.max(0.2, c.end - c.start);
+    // Pop-in style: 1-2 words at a time, each held for its share of the cue.
+    const groupSize = words.length >= 6 ? 2 : 1;
+    const groups: string[][] = [];
+    for (let i = 0; i < words.length; i += groupSize) groups.push(words.slice(i, i + groupSize));
+    const per = totalDur / groups.length;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const start = c.start + gi * per;
+      const end = gi === groups.length - 1 ? c.end : start + per;
+      const rendered = groups[gi]
+        .map((w) => (isPowerWord(w) ? `{\\c${accent}}${escapeAss(w)}{\\c${primaryInline}}` : escapeAss(w)))
+        .join(" ");
+      // \fad(80,60) = subtle pop-in/out
+      lines.push(
+        `Dialogue: 0,${fmtAssTime(start, durationSec)},${fmtAssTime(end, durationSec)},Neon,,0,0,0,,{\\blur1.2\\fad(80,60)}${rendered}`,
+      );
+    }
+  }
+  return header + lines.join("\n") + "\n";
 }
 
 export type Short = {
@@ -210,6 +256,8 @@ export type Short = {
   endSec: number;
   blob: Blob;
   url: string;
+  qualityScore?: number;
+  cueCount?: number;
 };
 
 async function loadFontBytes(url: string): Promise<Uint8Array> {
@@ -302,6 +350,52 @@ async function retry<T>(
 }
 
 
+function buildVideoFilter(
+  profile: RenderProfile,
+  hasCues: boolean,
+  assName: string,
+  brandedFrame: boolean,
+  zoomPunch: boolean,
+): string {
+  const fgScale = zoomPunch
+    // Subtle continuous zoom (1.00 -> 1.06 over ~5s loops) for kinetic feel.
+    ? `[fg]scale=${profile.width}:-2,zoompan=z='min(zoom+0.0006,1.06)':d=1:s=${profile.width}x${profile.height}:fps=${profile.fps}[fgs]`
+    : `[fg]scale=${profile.width}:-2[fgs]`;
+  const base = [
+    "[0:v]split=2[bg][fg]",
+    `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
+    fgScale,
+    `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+  ];
+  const subLabel = hasCues ? "[vs]" : "[vs]";
+  base.push(hasCues ? `[v]subtitles=${assName}:fontsdir=/fonts${subLabel}` : `[v]null${subLabel}`);
+  if (brandedFrame) {
+    // Yellow TikTokBoost signature frame (thick border, glow via double drawbox).
+    base.push(
+      `[vs]drawbox=x=0:y=0:w=iw:h=ih:color=0xFFE500@0.25:t=16,drawbox=x=6:y=6:w=iw-12:h=ih-12:color=0xFFE500@0.95:t=8[vout]`,
+    );
+  } else {
+    base.push(`[vs]null[vout]`);
+  }
+  return base.join(";");
+}
+
+function computeQualityScore(cues: Cue[], durationSec: number): number {
+  if (durationSec <= 0) return 0;
+  const cueCount = cues.length;
+  const density = cueCount / durationSec; // ~0.4-1.5 is ideal
+  let densityScore = 0;
+  if (density >= 0.35 && density <= 1.6) densityScore = 40;
+  else if (density > 0) densityScore = Math.max(10, 40 - Math.abs(density - 0.8) * 30);
+  const words = cues.flatMap((c) => c.text.split(/\s+/).filter(Boolean));
+  const power = words.filter(isPowerWord).length;
+  const powerScore = Math.min(25, power * 3);
+  const durScore = durationSec >= 45 && durationSec <= 85 ? 20 : 10;
+  const base = cueCount > 0 ? 15 : 0;
+  return Math.round(Math.max(0, Math.min(100, densityScore + powerScore + durScore + base)));
+}
+
+
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
@@ -318,9 +412,15 @@ export async function processVideo(opts: {
   throttle?: ThrottleOptions;
   poolSize?: number;
   signal?: AbortSignal;
+  wordByWord?: boolean;
+  brandedFrame?: boolean;
+  zoomPunch?: boolean;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const wordByWord = opts.wordByWord ?? true;
+  const brandedFrame = opts.brandedFrame ?? false;
+  const zoomPunch = opts.zoomPunch ?? false;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
@@ -453,17 +553,8 @@ export async function processVideo(opts: {
 
     // ── render (dispatched to any free worker) ────────────────────────────────
     try {
-      const baseFilter = [
-        "[0:v]split=2[bg][fg]",
-        `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
-        `[fg]scale=${profile.width}:-2[fgs]`,
-        `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
-      ];
-      const filter = [
-        ...baseFilter,
-        cues.length > 0 ? `[v]subtitles=subs_${i}.ass:fontsdir=/fonts[vout]` : "[v]null[vout]",
-      ].join(";");
-      const ass = buildAssFile(cues, dur, profile, style);
+      const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch);
+      const ass = buildAssFile(cues, dur, profile, style, wordByWord);
 
       const renderT0 = performance.now();
       const res = await retry(
@@ -491,7 +582,8 @@ export async function processVideo(opts: {
 
       const blob = new Blob([res.mp4], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
-      const short = { index: i, startSec: seg.start, endSec: seg.end, blob, url };
+      const qualityScore = computeQualityScore(cues, dur);
+      const short = { index: i, startSec: seg.start, endSec: seg.end, blob, url, qualityScore, cueCount: cues.length };
       shorts.push(short);
       onShort?.(short);
       doneCount++;
@@ -549,9 +641,15 @@ export async function retrySegment(opts: {
   onLog?: (msg: string) => void;
   onShort?: (short: Short) => void;
   onMetric?: MetricsCallback;
+  wordByWord?: boolean;
+  brandedFrame?: boolean;
+  zoomPunch?: boolean;
 }): Promise<Short | null> {
   const { file, segment, index: i, style, onProgress, onLog, onShort, onMetric } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const wordByWord = opts.wordByWord ?? true;
+  const brandedFrame = opts.brandedFrame ?? false;
+  const zoomPunch = opts.zoomPunch ?? false;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   onProgress?.({ phase: `Reprise segment ${i + 1}` });
@@ -637,18 +735,9 @@ export async function retrySegment(opts: {
   });
 
   try {
-    await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur, profile, style)));
+    await ff.writeFile(assName, new TextEncoder().encode(buildAssFile(cues, dur, profile, style, wordByWord)));
 
-    const baseFilter = [
-      "[0:v]split=2[bg][fg]",
-      `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
-      `[fg]scale=${profile.width}:-2[fgs]`,
-      `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
-    ];
-    const filter = [
-      ...baseFilter,
-      cues.length > 0 ? `[v]subtitles=${assName}:fontsdir=/fonts[vout]` : "[v]null[vout]",
-    ].join(";");
+    const filter = buildVideoFilter(profile, cues.length > 0, assName, brandedFrame, zoomPunch);
 
     const renderT0 = performance.now();
     await retry(
@@ -680,7 +769,8 @@ export async function retrySegment(opts: {
     const outData = (await ff.readFile(outName)) as Uint8Array;
     const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
     const url = URL.createObjectURL(blob);
-    const short = { index: i, startSec: segment.start, endSec: segment.end, blob, url };
+    const qualityScore = computeQualityScore(cues, dur);
+    const short = { index: i, startSec: segment.start, endSec: segment.end, blob, url, qualityScore, cueCount: cues.length };
     onShort?.(short);
     onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
     return short;
