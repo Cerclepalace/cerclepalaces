@@ -769,7 +769,8 @@ export async function retrySegment(opts: {
     const outData = (await ff.readFile(outName)) as Uint8Array;
     const blob = new Blob([outData.slice().buffer], { type: "video/mp4" });
     const url = URL.createObjectURL(blob);
-    const short = { index: i, startSec: segment.start, endSec: segment.end, blob, url };
+    const qualityScore = computeQualityScore(cues, dur);
+    const short = { index: i, startSec: segment.start, endSec: segment.end, blob, url, qualityScore, cueCount: cues.length };
     onShort?.(short);
     onMetric?.({ index: i, status: "done", renderMs: performance.now() - renderT0 });
     return short;
