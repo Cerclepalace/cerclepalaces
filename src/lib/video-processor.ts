@@ -412,9 +412,15 @@ export async function processVideo(opts: {
   throttle?: ThrottleOptions;
   poolSize?: number;
   signal?: AbortSignal;
+  wordByWord?: boolean;
+  brandedFrame?: boolean;
+  zoomPunch?: boolean;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const wordByWord = opts.wordByWord ?? true;
+  const brandedFrame = opts.brandedFrame ?? false;
+  const zoomPunch = opts.zoomPunch ?? false;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
