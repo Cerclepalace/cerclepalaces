@@ -167,17 +167,42 @@ function marginVFor(pos: SubtitlePosition, profile: RenderProfile): number {
   return profile.marginV;
 }
 
+// ASS inline color code (BGR): {\c&H00BBGGRR&}
+function assInlineColor(hex: string): string {
+  const c = hex.replace("#", "").padStart(6, "0").slice(0, 6);
+  const r = c.slice(0, 2), g = c.slice(2, 4), b = c.slice(4, 6);
+  return `&H00${b}${g}${r}&`.toUpperCase();
+}
+
+function fmtAssTime(t: number, durationSec: number): string {
+  const clamped = Math.max(0, Math.min(durationSec, t));
+  const h = Math.floor(clamped / 3600);
+  const m = Math.floor((clamped % 3600) / 60);
+  const s = Math.floor(clamped % 60);
+  const cs = Math.floor((clamped - Math.floor(clamped)) * 100);
+  return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
+}
+
+function escapeAss(t: string) {
+  return t.replace(/\\/g, "\\\\").replace(/\{/g, "(").replace(/\}/g, ")").replace(/\n/g, " ");
+}
+
 function buildAssFile(
   cues: Cue[],
   durationSec: number,
   profile: RenderProfile,
   style: SubtitleStyle,
+  wordByWord: boolean,
 ): string {
   const font = FONT_OPTIONS[style.fontKey];
   const primary = hexToAss(style.textColor);
   const outline = hexToAss(style.outlineColor);
   const alignment = alignmentFor(style.position);
   const marginV = marginVFor(style.position, profile);
+  const accent = assInlineColor(POWER_WORD_ACCENT);
+  const primaryInline = assInlineColor(style.textColor);
+  // In karaoke/word mode, boost size ~18% for punch.
+  const size = wordByWord ? Math.round(profile.fontSize * 1.18) : profile.fontSize;
 
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -188,32 +213,41 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Neon,${font.assName},${profile.fontSize},${primary},${primary},${outline},${outline},1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},${alignment},60,60,${marginV},1
+Style: Neon,${font.assName},${size},${primary},${primary},${outline},${outline},1,0,0,0,100,100,2,0,1,${profile.outline},${profile.shadow},${alignment},60,60,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-  const fmtTime = (t: number): string => {
-    const clamped = Math.max(0, Math.min(durationSec, t));
-    const h = Math.floor(clamped / 3600);
-    const m = Math.floor((clamped % 3600) / 60);
-    const s = Math.floor(clamped % 60);
-    const cs = Math.floor((clamped - Math.floor(clamped)) * 100);
-    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
-  };
-
-  const escape = (t: string) =>
-    t.replace(/\\/g, "\\\\").replace(/\{/g, "(").replace(/\}/g, ")").replace(/\n/g, " ");
-
-  const events = cues
-    .map(
-      (c) =>
-        `Dialogue: 0,${fmtTime(c.start)},${fmtTime(c.end)},Neon,,0,0,0,,{\\blur1.2}${escape(c.text)}`,
-    )
-    .join("\n");
-
-  return header + events + "\n";
+  const lines: string[] = [];
+  for (const c of cues) {
+    if (!wordByWord) {
+      lines.push(
+        `Dialogue: 0,${fmtAssTime(c.start, durationSec)},${fmtAssTime(c.end, durationSec)},Neon,,0,0,0,,{\\blur1.2}${escapeAss(c.text)}`,
+      );
+      continue;
+    }
+    const words = c.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const totalDur = Math.max(0.2, c.end - c.start);
+    // Pop-in style: 1-2 words at a time, each held for its share of the cue.
+    const groupSize = words.length >= 6 ? 2 : 1;
+    const groups: string[][] = [];
+    for (let i = 0; i < words.length; i += groupSize) groups.push(words.slice(i, i + groupSize));
+    const per = totalDur / groups.length;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const start = c.start + gi * per;
+      const end = gi === groups.length - 1 ? c.end : start + per;
+      const rendered = groups[gi]
+        .map((w) => (isPowerWord(w) ? `{\\c${accent}}${escapeAss(w)}{\\c${primaryInline}}` : escapeAss(w)))
+        .join(" ");
+      // \fad(80,60) = subtle pop-in/out
+      lines.push(
+        `Dialogue: 0,${fmtAssTime(start, durationSec)},${fmtAssTime(end, durationSec)},Neon,,0,0,0,,{\\blur1.2\\fad(80,60)}${rendered}`,
+      );
+    }
+  }
+  return header + lines.join("\n") + "\n";
 }
 
 export type Short = {
@@ -222,6 +256,8 @@ export type Short = {
   endSec: number;
   blob: Blob;
   url: string;
+  qualityScore?: number;
+  cueCount?: number;
 };
 
 async function loadFontBytes(url: string): Promise<Uint8Array> {
