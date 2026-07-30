@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiYoutubeMp4RouteImport } from './routes/api/youtube-mp4'
+import { Route as ApiTtsRouteImport } from './routes/api/tts'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,30 +23,39 @@ const ApiYoutubeMp4Route = ApiYoutubeMp4RouteImport.update({
   path: '/api/youtube-mp4',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTtsRoute = ApiTtsRouteImport.update({
+  id: '/api/tts',
+  path: '/api/tts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/youtube-mp4'
+  fullPaths: '/' | '/api/tts' | '/api/youtube-mp4'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/youtube-mp4'
-  id: '__root__' | '/' | '/api/youtube-mp4'
+  to: '/' | '/api/tts' | '/api/youtube-mp4'
+  id: '__root__' | '/' | '/api/tts' | '/api/youtube-mp4'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiTtsRoute: typeof ApiTtsRoute
   ApiYoutubeMp4Route: typeof ApiYoutubeMp4Route
 }
 
@@ -65,11 +75,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiYoutubeMp4RouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/tts': {
+      id: '/api/tts'
+      path: '/api/tts'
+      fullPath: '/api/tts'
+      preLoaderRoute: typeof ApiTtsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiTtsRoute: ApiTtsRoute,
   ApiYoutubeMp4Route: ApiYoutubeMp4Route,
 }
 export const routeTree = rootRouteImport
