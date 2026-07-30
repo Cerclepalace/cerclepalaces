@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PromoRouteImport } from './routes/promo'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiYoutubeMp4RouteImport } from './routes/api/youtube-mp4'
 import { Route as ApiTtsRouteImport } from './routes/api/tts'
 
+const PromoRoute = PromoRouteImport.update({
+  id: '/promo',
+  path: '/promo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +37,47 @@ const ApiTtsRoute = ApiTtsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/promo': typeof PromoRoute
   '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/promo': typeof PromoRoute
   '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/promo': typeof PromoRoute
   '/api/tts': typeof ApiTtsRoute
   '/api/youtube-mp4': typeof ApiYoutubeMp4Route
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/tts' | '/api/youtube-mp4'
+  fullPaths: '/' | '/promo' | '/api/tts' | '/api/youtube-mp4'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/tts' | '/api/youtube-mp4'
-  id: '__root__' | '/' | '/api/tts' | '/api/youtube-mp4'
+  to: '/' | '/promo' | '/api/tts' | '/api/youtube-mp4'
+  id: '__root__' | '/' | '/promo' | '/api/tts' | '/api/youtube-mp4'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PromoRoute: typeof PromoRoute
   ApiTtsRoute: typeof ApiTtsRoute
   ApiYoutubeMp4Route: typeof ApiYoutubeMp4Route
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/promo': {
+      id: '/promo'
+      path: '/promo'
+      fullPath: '/promo'
+      preLoaderRoute: typeof PromoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PromoRoute: PromoRoute,
   ApiTtsRoute: ApiTtsRoute,
   ApiYoutubeMp4Route: ApiYoutubeMp4Route,
 }
