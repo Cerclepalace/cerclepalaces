@@ -22,7 +22,7 @@ const PORT = Number(process.env.PORT || 8080);
 const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
-const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
+const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 2));
 let activeRenders = 0;
 const renderQueue = [];
 
