@@ -23,6 +23,10 @@ const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
 const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 2));
+const FFMPEG_TIMEOUT_MS = Math.max(
+  60_000,
+  Number(process.env.FFMPEG_TIMEOUT_MS || 4 * 60 * 1000),
+);
 let activeRenders = 0;
 const renderQueue = [];
 
@@ -118,26 +122,41 @@ function runFfmpeg(args, cwd, req) {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderr = "";
     let aborted = false;
+    let timedOut = false;
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      req?.off?.("aborted", onClose);
+      fn(value);
+    };
     // Si le client (iPhone) coupe la connexion, on tue ffmpeg au lieu de laisser
     // le CPU tourner pour rien et bloquer la file d'attente.
     const onClose = () => {
       aborted = true;
       proc.kill("SIGKILL");
     };
+    // Un processus ffmpeg figé ne doit jamais conserver un créneau de rendu à
+    // vie. Le finally de la route libérera ensuite le worker pour le short suivant.
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      proc.kill("SIGKILL");
+    }, FFMPEG_TIMEOUT_MS);
+    timeout.unref();
     req?.once?.("aborted", onClose);
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 40_000) stderr = stderr.slice(-20_000);
     });
     proc.on("error", (e) => {
-      req?.off?.("aborted", onClose);
-      reject(e);
+      finish(reject, e);
     });
     proc.on("close", (code) => {
-      req?.off?.("aborted", onClose);
-      if (aborted) reject(new Error("client déconnecté"));
-      else if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
+      if (timedOut) finish(reject, new Error("ffmpeg timeout — rendu interrompu après 4 minutes"));
+      else if (aborted) finish(reject, new Error("client déconnecté"));
+      else if (code === 0) finish(resolve);
+      else finish(reject, new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
     });
   });
 }
