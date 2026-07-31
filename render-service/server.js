@@ -22,6 +22,9 @@ const PORT = Number(process.env.PORT || 8080);
 const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
+const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
+let activeRenders = 0;
+const renderQueue = [];
 
 if (!SECRET) {
   console.warn("[neoncut] RENDER_SERVICE_SECRET manquant — le service refusera toutes les requêtes.");
@@ -115,6 +118,20 @@ function runFfmpeg(args, cwd) {
   });
 }
 
+async function acquireRenderSlot() {
+  if (activeRenders < MAX_RENDER_CONCURRENCY) {
+    activeRenders++;
+    return;
+  }
+  await new Promise((resolve) => renderQueue.push(resolve));
+  activeRenders++;
+}
+
+function releaseRenderSlot() {
+  activeRenders = Math.max(0, activeRenders - 1);
+  renderQueue.shift()?.();
+}
+
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // Ouvre une session et reçoit la vidéo source + assets.
@@ -189,6 +206,7 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
 
   try {
     if (hasCues) await fs.writeFile(path.join(s.dir, assName), ass, "utf8");
+    await acquireRenderSlot();
     await runFfmpeg(
       [
         "-ss", Number(start).toFixed(3),
@@ -197,9 +215,10 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
         ...(hasPromo && hasVoice ? ["-i", "promo_vo.mp3"] : []),
         ...(hasPromo && hasLogo ? ["-i", "pause_logo.png"] : []),
         "-filter_complex", localFilter,
-        "-map", "[vout]",
+        "-map", "[vencoded]",
         ...(hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
         "-c:v", "libx264",
+        "-threads", "2",
         "-preset", String(preset),
         "-crf", String(crf),
         "-pix_fmt", "yuv420p",
@@ -222,6 +241,8 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
+  } finally {
+    releaseRenderSlot();
   }
 });
 
