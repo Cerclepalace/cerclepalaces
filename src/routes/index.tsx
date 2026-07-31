@@ -20,6 +20,7 @@ import {
   MAX_SHORT_SEC,
   type ViralMoment,
 } from "@/lib/viral-detect";
+import { runStallSelfTest } from "@/lib/render-selftest";
 import { isMobileDevice } from "@/lib/remote-render";
 import { Button } from "@/components/ui/button";
 
@@ -107,6 +108,11 @@ function Home() {
   });
   // Encodage serveur : imposé sur mobile (ffmpeg.wasm y sature la mémoire).
   const [serverRender, setServerRender] = useState(false);
+  const [stallTest, setStallTest] = useState<{ running: boolean; msg: string; ok: boolean | null }>({
+    running: false,
+    msg: "",
+    ok: null,
+  });
   const [mobileDevice, setMobileDevice] = useState(false);
   useEffect(() => {
     const m = isMobileDevice();
@@ -132,6 +138,28 @@ function Home() {
     const id = setInterval(() => setNowMs(Date.now()), 500);
     return () => clearInterval(id);
   }, [busy]);
+
+  /** Auto-test du coupe-circuit : FFmpeg volontairement figé côté serveur. */
+  async function handleStallTest() {
+    setStallTest({ running: true, msg: "Simulation d'un FFmpeg figé (8 s)…", ok: null });
+    try {
+      const r = await runStallSelfTest(8000);
+      const lines = [
+        r.killed
+          ? `Coupe-circuit déclenché après ${(r.elapsedMs / 1000).toFixed(1)} s (timeout ${(r.timeoutMs / 1000).toFixed(0)} s)`
+          : `FFmpeg n'a pas été coupé (${r.detail || "aucune erreur remontée"})`,
+        r.slotReleased
+          ? `File libérée : ${r.activeRenders} rendu actif, ${r.queued} en attente`
+          : `File toujours occupée : ${r.activeRenders} rendu actif`,
+        r.queueFreeAfterMs >= 0
+          ? `Service de nouveau disponible en ${r.queueFreeAfterMs} ms`
+          : "Le service n'a pas confirmé sa disponibilité",
+      ];
+      setStallTest({ running: false, ok: r.ok, msg: lines.join(" · ") });
+    } catch (e) {
+      setStallTest({ running: false, ok: false, msg: (e as Error).message });
+    }
+  }
 
   const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
   const cobaltUrl = ytValid
@@ -1292,6 +1320,39 @@ function Home() {
                     </span>
                   </span>
                 </label>
+              </div>
+
+              <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-white/70">
+                    Test conversion ✦
+                    <span className="mt-1 block text-[10px] text-white/40">
+                      Simule un FFmpeg bloqué sur le serveur et vérifie que le coupe-circuit tue le
+                      processus et rend la file disponible.
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleStallTest}
+                    disabled={busy || stallTest.running}
+                    className="h-auto border border-[#39FF14]/40 py-2 text-xs"
+                  >
+                    {stallTest.running ? "Test en cours…" : "Test conversion"}
+                  </Button>
+                </div>
+                {stallTest.msg && (
+                  <div
+                    className="mt-3 rounded-lg border p-2 text-[11px]"
+                    style={{
+                      borderColor: stallTest.ok === false ? "rgba(255,80,80,0.4)" : "rgba(57,255,20,0.4)",
+                      color: stallTest.ok === false ? "#FF6B6B" : "#39FF14",
+                    }}
+                  >
+                    {stallTest.ok === null ? "" : stallTest.ok ? "✅ " : "⚠️ "}
+                    {stallTest.msg}
+                  </div>
+                )}
               </div>
 
               <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
