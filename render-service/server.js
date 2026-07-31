@@ -113,17 +113,30 @@ const upload = multer({
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 Go
 });
 
-function runFfmpeg(args, cwd) {
+function runFfmpeg(args, cwd, req) {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderr = "";
+    let aborted = false;
+    // Si le client (iPhone) coupe la connexion, on tue ffmpeg au lieu de laisser
+    // le CPU tourner pour rien et bloquer la file d'attente.
+    const onClose = () => {
+      aborted = true;
+      proc.kill("SIGKILL");
+    };
+    req?.once?.("aborted", onClose);
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 40_000) stderr = stderr.slice(-20_000);
     });
-    proc.on("error", reject);
+    proc.on("error", (e) => {
+      req?.off?.("aborted", onClose);
+      reject(e);
+    });
     proc.on("close", (code) => {
-      if (code === 0) resolve();
+      req?.off?.("aborted", onClose);
+      if (aborted) reject(new Error("client déconnecté"));
+      else if (code === 0) resolve();
       else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
     });
   });
