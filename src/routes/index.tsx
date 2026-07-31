@@ -442,35 +442,64 @@ function Home() {
     ],
   );
 
+  type ExportState = {
+    status: "working" | "done" | "error";
+    message: string;
+  };
+  const [exportState, setExportState] = useState<Record<number, ExportState>>({});
+
   const download = async (s: Short) => {
     const name = `short_${String(s.index + 1).padStart(2, "0")}.mp4`;
-    // iOS/Safari ignore souvent l'attribut download sur un blob: URL.
-    // On tente d'abord le partage natif (Enregistrer dans Photos / Fichiers).
+    const set = (st: ExportState) => setExportState((p) => ({ ...p, [s.index]: st }));
+    const sizeMb = (s.blob.size / (1024 * 1024)).toFixed(1);
+
+    set({ status: "working", message: "Génération du MP4…" });
     try {
+      if (!s.blob || s.blob.size === 0) {
+        throw new Error("fichier vidéo vide, relance le rendu de ce segment");
+      }
+
+      // iOS/Safari ignore souvent l'attribut download sur un blob: URL.
+      // On tente d'abord le partage natif (Enregistrer dans Photos / Fichiers).
+      set({ status: "working", message: "Préparation du téléchargement…" });
       const f = new File([s.blob], name, { type: "video/mp4" });
       const nav = navigator as Navigator & {
         canShare?: (d: { files: File[] }) => boolean;
         share?: (d: { files: File[]; title?: string }) => Promise<void>;
       };
       if (nav.share && nav.canShare?.({ files: [f] })) {
-        await nav.share({ files: [f], title: name });
-        return;
+        try {
+          await nav.share({ files: [f], title: name });
+          set({ status: "done", message: `${name} · ${sizeMb} Mo — enregistré ✓` });
+          return;
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") {
+            set({ status: "error", message: "Partage annulé" });
+            return;
+          }
+          /* partage indisponible : on retombe sur le téléchargement classique */
+        }
       }
-    } catch {
-      /* partage annulé ou indisponible : on retombe sur le téléchargement */
-    }
 
-    const url = URL.createObjectURL(s.blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.rel = "noopener";
-    a.target = "_blank";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      const url = URL.createObjectURL(s.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.rel = "noopener";
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      set({ status: "done", message: `${name} · ${sizeMb} Mo — téléchargé ✓` });
+    } catch (e) {
+      set({
+        status: "error",
+        message: `Échec de l'export : ${(e as Error).message || "erreur inconnue"}`,
+      });
+    }
   };
+
 
   const MAX_MANUAL_RETRIES = 3;
 
