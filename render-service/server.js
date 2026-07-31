@@ -194,6 +194,7 @@ app.post("/session/:id/extract", requireAuth, async (req, res) => {
         "-y", out,
       ],
       s.dir,
+      req,
     );
     const buf = await fs.readFile(path.join(s.dir, out));
     await fs.rm(path.join(s.dir, out), { force: true });
