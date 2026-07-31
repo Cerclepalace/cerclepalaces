@@ -1774,6 +1774,11 @@ function Dashboard({
                     {manualCount > 0 && (
                       <span className="ml-1 text-[10px] text-white/40">×{manualCount}</span>
                     )}
+                    {r.status === "error" && r.lastError && (
+                      <div className="mt-1 max-w-48 break-words text-[9px] normal-case text-red-300/70">
+                        {r.lastError}
+                      </div>
+                    )}
                   </td>
                   <td className="px-2 py-1.5 text-right font-mono text-white/70">
                     {r.transcribeMs ? fmtMs(r.transcribeMs) : "—"}
