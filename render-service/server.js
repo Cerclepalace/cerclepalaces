@@ -71,8 +71,19 @@ function sessionDir(id) {
 }
 
 async function touchSession(id) {
-  const s = sessions.get(id);
-  if (!s) return null;
+  let s = sessions.get(id);
+  if (!s) {
+    // Le service a pu redémarrer (déploiement, OOM) : les fichiers de session
+    // sont toujours sur le disque, on réhydrate au lieu de renvoyer un 404.
+    const dir = sessionDir(String(id).replace(/[^\w-]/g, ""));
+    try {
+      await fs.access(path.join(dir, "input.mp4"));
+      s = { dir, createdAt: Date.now() };
+      sessions.set(id, s);
+    } catch {
+      return null;
+    }
+  }
   s.createdAt = Date.now();
   return s;
 }
