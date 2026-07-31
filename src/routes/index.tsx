@@ -77,8 +77,6 @@ function Home() {
   const [outlineColor, setOutlineColor] = useState("#39FF14");
   const [position, setPosition] = useState<SubtitlePosition>("bottom");
   const [manualMode, setManualMode] = useState(false);
-  const [smart, setSmart] = useState(false);
-  const [smartCount, setSmartCount] = useState(8);
   const [manualText, setManualText] = useState("");
 
   const [status, setStatus] = useState<string>("");
@@ -329,8 +327,6 @@ function Home() {
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
-          smart: previewOnly ? false : smart,
-          smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
           remote: serverRender,
@@ -399,8 +395,6 @@ function Home() {
       duration,
       manualMode,
       manualText,
-      smart,
-      smartCount,
       moments,
       selectedMoments,
 
@@ -878,31 +872,21 @@ function Home() {
             </div>
 
             {/* MODE */}
-            <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
+            <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
               <Button
                 type="button"
-                variant={!manualMode && !smart ? "default" : "ghost"}
-                onClick={() => { setManualMode(false); setSmart(false); }}
+                variant={!manualMode ? "default" : "ghost"}
+                onClick={() => setManualMode(false)}
                 disabled={busy}
                 className="h-auto py-2"
-                style={!manualMode && !smart ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
+                style={!manualMode ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
               >
                 Auto
               </Button>
               <Button
                 type="button"
-                variant={smart ? "default" : "ghost"}
-                onClick={() => { setManualMode(false); setSmart(true); }}
-                disabled={busy}
-                className="h-auto py-2"
-                style={smart ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-              >
-                Smart buzz ✦
-              </Button>
-              <Button
-                type="button"
                 variant={manualMode ? "default" : "ghost"}
-                onClick={() => { setManualMode(true); setSmart(false); }}
+                onClick={() => setManualMode(true)}
                 disabled={busy}
                 className="h-auto py-2"
                 style={manualMode ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
@@ -910,24 +894,6 @@ function Home() {
                 Manuel
               </Button>
             </div>
-            {smart && (
-              <div className="mb-4 rounded-lg border border-[#39FF14]/30 bg-[#39FF14]/[0.05] p-3 text-xs text-white/70">
-                Analyse l'audio pour repérer les pics d'énergie (rires, cris, punchlines, musique) et
-                extrait les meilleurs moments. Ajuste le nombre de shorts ci-dessous.
-                <div className="mt-3 flex items-center gap-3">
-                  <label className="uppercase tracking-widest text-white/60">Shorts max</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={smartCount}
-                    onChange={(e) => setSmartCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-                    disabled={busy}
-                    className="w-20 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
-                  />
-                </div>
-              </div>
-            )}
 
             {/* ── DÉTECTION VIRALE MULTI-SIGNAL ─────────────────────────── */}
             <div className="mb-5 rounded-xl border border-[#FFE500]/30 bg-[#FFE500]/[0.04] p-4">
