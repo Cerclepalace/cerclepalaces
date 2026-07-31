@@ -820,12 +820,32 @@ export async function processVideo(opts: {
 
   try {
     onProgress({
-      phase: `Rendu parallèle sur ${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""}`,
+      phase: `Découpage séquentiel de ${totalSegments} segment${totalSegments > 1 ? "s" : ""}`,
       totalSegments,
     });
-    await Promise.all(segments.map((_, i) => runOne(i)));
+    // Un segment à la fois : ffmpeg.wasm garde tout en mémoire, le parallélisme
+    // faisait crasher l'onglet sur les grosses vidéos.
+    for (let i = 0; i < totalSegments; i++) {
+      if (signal?.aborted) break;
+      onProgress({
+        phase: `Découpage du segment ${i + 1}/${totalSegments}…`,
+        segmentIndex: i,
+        totalSegments,
+        progress: i / totalSegments,
+      });
+      try {
+        await runOne(i);
+      } catch (e) {
+        // Un segment en échec ne doit jamais interrompre les suivants.
+        if (e instanceof AbortedError || signal?.aborted) break;
+        const msg = (e as Error).message || "erreur inconnue";
+        onLog?.(`Segment ${i + 1} en échec : ${msg}`);
+        onMetric?.({ index: i, status: "error", lastError: msg });
+      }
+    }
     throwIfAborted(signal);
     return shorts.sort((a, b) => a.index - b.index);
+
   } finally {
     if (signal) signal.removeEventListener("abort", onAbort);
     pool.terminate();
