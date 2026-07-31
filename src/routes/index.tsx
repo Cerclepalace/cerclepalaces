@@ -232,10 +232,56 @@ function Home() {
       .filter((v): v is SegmentRange => v !== null);
   };
 
+  const chosenMoments = moments.filter((m) => selectedMoments.has(m.id));
+
+  const analyze = useCallback(async () => {
+    if (!file || analyzing) return;
+    setAnalyzing(true);
+    setError(null);
+    setAnalyzeStatus("Démarrage de l'analyse…");
+    try {
+      const res = await analyzeViralMoments({
+        file,
+        trim: { start: trimStart, end: trimEnd || duration },
+        count: momentCount,
+        throttle: { maxConcurrent, rpm },
+        onProgress: (p) => setAnalyzeStatus(p),
+        onLog: (m) => console.debug("[viral]", m),
+      });
+      setMoments(res);
+      setSelectedMoments(new Set(res.map((m) => m.id)));
+      setAnalyzeStatus(
+        res.length ? `${res.length} moment${res.length > 1 ? "s" : ""} détecté${res.length > 1 ? "s" : ""}` : "Aucun moment détecté",
+      );
+    } catch (e) {
+      setError(`Analyse échouée: ${(e as Error).message}`);
+      setAnalyzeStatus("");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, maxConcurrent, rpm]);
+
+  const updateMoment = (id: string, patch: { start?: number; end?: number }) => {
+    setMoments((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const start = Math.max(0, patch.start ?? m.start);
+        const rawEnd = patch.end ?? m.end;
+        const end = Math.min(
+          duration || rawEnd,
+          Math.max(start + MIN_SHORT_SEC, Math.min(start + MAX_SHORT_SEC, rawEnd)),
+        );
+        return { ...m, start, end };
+      }),
+    );
+  };
+
   const usableDur = Math.max(0, trimEnd - trimStart);
-  const estimatedShorts = manualMode
-    ? parseManual().length
-    : Math.max(1, Math.floor(usableDur / segmentSec));
+  const estimatedShorts = chosenMoments.length
+    ? chosenMoments.length
+    : manualMode
+      ? parseManual().length
+      : Math.max(1, Math.floor(usableDur / segmentSec));
 
   const run = useCallback(
     async (previewOnly = false) => {
@@ -251,7 +297,12 @@ function Home() {
       setNowMs(Date.now());
       setStatus(previewOnly ? "Aperçu…" : "Démarrage…");
       try {
-        let custom = manualMode ? parseManual() : undefined;
+        let custom: SegmentRange[] | undefined = chosenMoments.length
+          ? chosenMoments.map((m) => ({ start: m.start, end: m.end }))
+          : manualMode
+            ? parseManual()
+            : undefined;
+
         if (previewOnly) {
           const base = custom && custom.length > 0 ? custom[0].start : trimStart;
           const end = Math.min(duration || base + 8, base + 8);
