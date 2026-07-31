@@ -27,7 +27,9 @@ const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
 const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
 const FFMPEG_TIMEOUT_MS = Math.max(
   60_000,
-  Number(process.env.FFMPEG_TIMEOUT_MS || 4 * 60 * 1000),
+  // Le serveur coupe avant le navigateur (180 s) afin de toujours libérer le
+  // créneau et de renvoyer une vraie erreur exploitable au client.
+  Number(process.env.FFMPEG_TIMEOUT_MS || 170_000),
 );
 let activeRenders = 0;
 const renderQueue = [];
@@ -155,7 +157,7 @@ function runFfmpeg(args, cwd, req) {
       finish(reject, e);
     });
     proc.on("close", (code) => {
-      if (timedOut) finish(reject, new Error("ffmpeg timeout — rendu interrompu après 4 minutes"));
+      if (timedOut) finish(reject, new Error("ffmpeg timeout — délai maximal de rendu dépassé"));
       else if (aborted) finish(reject, new Error("client déconnecté"));
       else if (code === 0) finish(resolve);
       else finish(reject, new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
@@ -163,18 +165,34 @@ function runFfmpeg(args, cwd, req) {
   });
 }
 
-async function acquireRenderSlot() {
+async function acquireRenderSlot(req) {
   if (activeRenders < MAX_RENDER_CONCURRENCY) {
     activeRenders++;
     return;
   }
-  await new Promise((resolve) => renderQueue.push(resolve));
+  await new Promise((resolve, reject) => {
+    const entry = { resolve, reject, req };
+    const onAbort = () => {
+      const index = renderQueue.indexOf(entry);
+      if (index >= 0) renderQueue.splice(index, 1);
+      reject(new Error("client déconnecté pendant l'attente"));
+    };
+    entry.onAbort = onAbort;
+    req.once("aborted", onAbort);
+    renderQueue.push(entry);
+  });
   activeRenders++;
 }
 
 function releaseRenderSlot() {
   activeRenders = Math.max(0, activeRenders - 1);
-  renderQueue.shift()?.();
+  while (renderQueue.length > 0) {
+    const entry = renderQueue.shift();
+    if (!entry || entry.req.aborted) continue;
+    entry.req.off("aborted", entry.onAbort);
+    entry.resolve();
+    break;
+  }
 }
 
 /**
@@ -286,7 +304,7 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
 
   try {
     if (hasCues) await fs.writeFile(path.join(s.dir, assName), ass, "utf8");
-    await acquireRenderSlot();
+    await acquireRenderSlot(req);
     renderSlotAcquired = true;
     await runFfmpeg(
       [
