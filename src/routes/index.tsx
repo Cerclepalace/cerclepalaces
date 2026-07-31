@@ -1527,7 +1527,7 @@ function Home() {
               </div>
             )}
 
-            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} />
+            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} serverRender={serverRender} />
           </section>
         )}
 
@@ -1644,6 +1644,8 @@ function Dashboard({
   doneCount,
   onRetry,
   maxManualRetries,
+  serverRender,
+
 }: {
   metrics: Record<number, SegmentMetric>;
   runStartMs: number | null;
