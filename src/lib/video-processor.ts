@@ -37,7 +37,6 @@ export type ProgressCallback = (info: {
   progress?: number;
 }) => void;
 
-export type RenderMode = "fast" | "quality" | "premium";
 
 export type FontKey = "bebas" | "anton" | "montserrat" | "impact";
 
@@ -110,23 +109,24 @@ type RenderProfile = {
   preset: string;
 };
 
-const RENDER_PROFILES: Record<RenderMode, RenderProfile> = {
-  fast: {
-    width: 720, height: 1280, bgWidth: 360, bgHeight: 640,
-    blur: "10:1", fontSize: 64, outline: 4, shadow: 3, marginV: 175,
-    crf: "32", audioBitrate: "96k", fps: 30, preset: "ultrafast",
-  },
-  quality: {
-    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
-    blur: "14:1", fontSize: 96, outline: 6, shadow: 4, marginV: 260,
-    crf: "26", audioBitrate: "128k", fps: 30, preset: "veryfast",
-  },
-  premium: {
-    width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
-    blur: "18:2", fontSize: 104, outline: 7, shadow: 5, marginV: 280,
-    crf: "19", audioBitrate: "192k", fps: 30, preset: "medium",
-  },
+// Un seul profil : la meilleure qualité que chaque moteur supporte sans tomber.
+// - En local (ffmpeg.wasm) : 1080x1920, CRF 20, preset veryfast (compromis
+//   qualité/mémoire tenable dans un onglet).
+// - En distant (petite instance Railway) : 1080p fait exploser la RAM et
+//   renvoie un 502. On reste en 1280 de haut mais avec un CRF bien plus bas
+//   et un audio 160k, ce qui donne une image nette sans crash.
+const LOCAL_PROFILE: RenderProfile = {
+  width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
+  blur: "16:2", fontSize: 100, outline: 6, shadow: 4, marginV: 270,
+  crf: "20", audioBitrate: "192k", fps: 30, preset: "veryfast",
 };
+
+const REMOTE_PROFILE: RenderProfile = {
+  width: 720, height: 1280, bgWidth: 360, bgHeight: 640,
+  blur: "12:1", fontSize: 66, outline: 4, shadow: 3, marginV: 180,
+  crf: "20", audioBitrate: "160k", fps: 30, preset: "veryfast",
+};
+
 
 
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
@@ -503,7 +503,6 @@ function computeQualityScore(cues: Cue[], durationSec: number): number {
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
-  renderMode?: RenderMode;
   style: SubtitleStyle;
   trim?: { start: number; end: number };
   customSegments?: SegmentRange[];
@@ -537,20 +536,9 @@ export async function processVideo(opts: {
     );
   }
 
-  const requestedProfile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   const useRemote = opts.remote ?? isMobileDevice();
-  // Railway est volontairement limité à un canvas 720p. Un unique encodage
-  // 1080x1920 suffit à dépasser la mémoire de la petite instance et provoque
-  // un 502 sans réponse. On conserve une compression de qualité, les sous-
-  // titres et tous les effets, mais sur une géométrie fiable côté serveur.
-  const profile: RenderProfile = useRemote
-    ? {
-        ...RENDER_PROFILES.fast,
-        crf: opts.renderMode === "premium" ? "22" : "25",
-        audioBitrate: opts.renderMode === "premium" ? "128k" : "96k",
-        preset: "ultrafast",
-      }
-    : { ...requestedProfile, preset: "ultrafast" };
+  const profile: RenderProfile = useRemote ? REMOTE_PROFILE : LOCAL_PROFILE;
+
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
@@ -879,7 +867,6 @@ export async function retrySegment(opts: {
   file: File;
   segment: SegmentRange;
   index: number;
-  renderMode?: RenderMode;
   style: SubtitleStyle;
   throttle?: ThrottleOptions;
   onProgress?: ProgressCallback;
@@ -891,7 +878,7 @@ export async function retrySegment(opts: {
   zoomPunch?: boolean;
 }): Promise<Short | null> {
   const { file, segment, index: i, style, onProgress, onLog, onShort, onMetric } = opts;
-  const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const profile = LOCAL_PROFILE;
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;

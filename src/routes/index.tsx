@@ -7,7 +7,6 @@ import {
   probeDuration,
   clearSegmentCache,
   FONT_OPTIONS,
-  type RenderMode,
   type Short,
   type FontKey,
   type SubtitlePosition,
@@ -71,7 +70,6 @@ function Home() {
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [segmentSec, setSegmentSec] = useState(70);
-  const [renderMode, setRenderMode] = useState<RenderMode>("fast");
   const [fontKey, setFontKey] = useState<FontKey>("bebas");
   const [colorPreset, setColorPreset] = useState<ColorPresetKey>("neon");
   const [textColor, setTextColor] = useState("#FFFFFF");
@@ -351,7 +349,6 @@ function Home() {
         const out = await processVideo({
           file,
           segmentSec,
-          renderMode: previewOnly ? "fast" : renderMode,
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
@@ -407,12 +404,11 @@ function Home() {
         setBusy(false);
         setProgress(null);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+
       file,
-      renderMode,
       segmentSec,
       fontKey,
       textColor,
@@ -536,7 +532,6 @@ function Home() {
           file,
           index,
           segment: seg,
-          renderMode,
           style: { fontKey, textColor, outlineColor, position },
           throttle: { maxConcurrent, rpm },
           wordByWord,
@@ -582,7 +577,6 @@ function Home() {
       trimEnd,
       manualMode,
       manualText,
-      renderMode,
       fontKey,
       textColor,
       outlineColor,
@@ -1265,44 +1259,19 @@ function Home() {
             </div>
 
             <div className="mb-4">
-              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Vitesse de rendu</div>
-              <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
-                <Button
-                  type="button"
-                  variant={renderMode === "fast" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("fast")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "fast" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Rapide</span>
-                  <span className="text-xs font-normal opacity-70">720p · léger</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant={renderMode === "quality" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("quality")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "quality" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Qualité</span>
-                  <span className="text-xs font-normal opacity-70">1080p · CRF 26</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant={renderMode === "premium" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("premium")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "premium" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Premium ✦</span>
-                  <span className="text-xs font-normal opacity-70">1080p · CRF 19 · 192k</span>
-                </Button>
+              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Qualité</div>
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-white/60">
+                <span className="font-bold uppercase tracking-wider" style={{ color: "#39FF14" }}>
+                  Qualité maximale automatique
+                </span>
+                <div className="mt-1">
+                  {serverRender
+                    ? "Rendu serveur : 720p · CRF 20 · audio 160k — le maximum tenable sans saturer le service."
+                    : "Rendu local : 1080p · CRF 20 · audio 192k."}
+                </div>
               </div>
-
             </div>
+
 
             <div className="mb-4">
               <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
