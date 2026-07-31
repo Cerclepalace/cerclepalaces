@@ -37,7 +37,6 @@ export type ProgressCallback = (info: {
   progress?: number;
 }) => void;
 
-export type RenderMode = "fast" | "quality" | "premium";
 
 export type FontKey = "bebas" | "anton" | "montserrat" | "impact";
 
@@ -868,7 +867,6 @@ export async function retrySegment(opts: {
   file: File;
   segment: SegmentRange;
   index: number;
-  renderMode?: RenderMode;
   style: SubtitleStyle;
   throttle?: ThrottleOptions;
   onProgress?: ProgressCallback;
