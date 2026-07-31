@@ -20,7 +20,9 @@ import {
   MAX_SHORT_SEC,
   type ViralMoment,
 } from "@/lib/viral-detect";
+import { isMobileDevice } from "@/lib/remote-render";
 import { Button } from "@/components/ui/button";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
