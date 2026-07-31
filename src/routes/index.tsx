@@ -14,6 +14,12 @@ import {
   type SegmentRange,
   type SegmentMetric,
 } from "@/lib/video-processor";
+import {
+  analyzeViralMoments,
+  MIN_SHORT_SEC,
+  MAX_SHORT_SEC,
+  type ViralMoment,
+} from "@/lib/viral-detect";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
