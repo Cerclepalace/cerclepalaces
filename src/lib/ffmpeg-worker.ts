@@ -14,6 +14,7 @@ type InitMsg = {
   id: string;
   inputBytes: ArrayBuffer;
   fonts: Array<{ file: string; bytes: ArrayBuffer }>;
+  voiceBytes?: ArrayBuffer | null;
 };
 
 type ExtractMsg = {
@@ -36,7 +37,10 @@ type RenderMsg = {
   crf: string;
   audioBitrate: string;
   preset?: string;
+  hasPromo?: boolean;
+  hasVoice?: boolean;
 };
+
 
 
 type Incoming = InitMsg | ExtractMsg | RenderMsg;
