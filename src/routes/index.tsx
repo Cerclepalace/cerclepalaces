@@ -70,7 +70,6 @@ function Home() {
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
   const [segmentSec, setSegmentSec] = useState(70);
-  const [renderMode, setRenderMode] = useState<RenderMode>("fast");
   const [fontKey, setFontKey] = useState<FontKey>("bebas");
   const [colorPreset, setColorPreset] = useState<ColorPresetKey>("neon");
   const [textColor, setTextColor] = useState("#FFFFFF");
@@ -350,7 +349,6 @@ function Home() {
         const out = await processVideo({
           file,
           segmentSec,
-          renderMode: previewOnly ? "fast" : renderMode,
           style: { fontKey, textColor, outlineColor, position },
           trim: { start: trimStart, end: trimEnd || duration },
           customSegments: custom,
@@ -411,7 +409,6 @@ function Home() {
 
     [
       file,
-      renderMode,
       segmentSec,
       fontKey,
       textColor,
@@ -535,7 +532,6 @@ function Home() {
           file,
           index,
           segment: seg,
-          renderMode,
           style: { fontKey, textColor, outlineColor, position },
           throttle: { maxConcurrent, rpm },
           wordByWord,
@@ -581,7 +577,6 @@ function Home() {
       trimEnd,
       manualMode,
       manualText,
-      renderMode,
       fontKey,
       textColor,
       outlineColor,
