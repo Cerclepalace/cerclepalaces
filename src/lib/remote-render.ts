@@ -150,7 +150,13 @@ export class RemoteRenderPool {
         body: JSON.stringify(msg),
       });
 
-    let res = await doFetch(await this.freshToken());
+    let res: Response;
+    try {
+      res = await doFetch(await this.freshToken());
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "connexion interrompue";
+      throw new Error(`Service de rendu momentanément indisponible (${detail})`);
+    }
     if (res.status === 401) {
       // jeton périmé pendant un long rendu : on le renouvelle et on rejoue une fois
       res = await doFetch(await this.freshToken(true));

@@ -475,6 +475,11 @@ function buildVideoFilter(
       base.push(`[acat]anull[aout]`);
     }
   }
+  // Normalise systématiquement la géométrie avant libx264. Certains filtres
+  // (notamment zoompan) propagent un SAR fractionnaire que x264 refuse parfois.
+  base.push(
+    `[vout]scale=${profile.width}:${profile.height}:flags=lanczos,setsar=1,format=yuv420p[vencoded]`,
+  );
   return base.join(";");
 }
 
@@ -919,9 +924,10 @@ export async function retrySegment(opts: {
           "-i", "input.mp4",
           "-t", dur.toFixed(3),
           "-filter_complex", filter,
-          "-map", "[vout]",
+          "-map", "[vencoded]",
           "-map", "0:a?",
           "-c:v", "libx264",
+          "-threads", "2",
           "-preset", profile.preset,
           "-crf", profile.crf,
           "-c:a", "aac",
