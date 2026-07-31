@@ -1626,7 +1626,7 @@ function Home() {
                       {Math.round(s.startSec)}s → {Math.round(s.endSec)}s
                     </span>
                     <button
-                      onClick={() => download(s)}
+                      onClick={() => void download(s)}
                       className="rounded-md px-3 py-1 font-semibold uppercase tracking-wider"
                       style={{ backgroundColor: "#39FF14", color: "#050505" }}
                     >
