@@ -613,18 +613,27 @@ export async function processVideo(opts: {
         });
       })()
     : await (async () => {
-        onProgress({
-          phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})`,
-        });
-        return FFmpegPool.create({
-          size: desiredPoolSize,
-          inputBytes,
-          voiceBytes,
-          logoBytes,
-          fonts: fontsToLoad,
-          onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
-        });
+        onProgress({ phase: "Chargement du moteur ffmpeg.wasm" });
+        try {
+          const created = await FFmpegPool.create({
+            size: desiredPoolSize,
+            inputBytes,
+            voiceBytes,
+            logoBytes,
+            fonts: fontsToLoad,
+            onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
+          });
+          onProgress({ phase: "Moteur ffmpeg.wasm prêt" });
+          return created;
+        } catch (e) {
+          const msg = (e as Error).message || "raison inconnue";
+          onLog?.(`Échec du chargement de ffmpeg.wasm : ${msg}`);
+          throw new Error(
+            `Impossible de charger le moteur vidéo ffmpeg.wasm (${msg}). Vérifie ta connexion, recharge la page, ou active le rendu serveur.`,
+          );
+        }
       })();
+
 
 
   // Kill the pool as soon as the caller aborts — this rejects every in-flight
