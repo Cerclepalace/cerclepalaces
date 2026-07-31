@@ -255,19 +255,26 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
         "-y", outName,
       ],
       s.dir,
+      req,
     );
     const full = path.join(s.dir, outName);
     const stat = await fs.stat(full);
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Content-Length", String(stat.size));
     const stream = createReadStream(full);
-    stream.pipe(res);
-    stream.on("close", () => {
-      fs.rm(full, { force: true }).catch(() => {});
-      fs.rm(path.join(s.dir, assName), { force: true }).catch(() => {});
+    await new Promise((resolve) => {
+      stream.pipe(res);
+      const cleanup = () => {
+        fs.rm(full, { force: true }).catch(() => {});
+        fs.rm(path.join(s.dir, assName), { force: true }).catch(() => {});
+        resolve();
+      };
+      stream.once("close", cleanup);
+      stream.once("error", cleanup);
     });
   } catch (e) {
-    res.status(500).json({ error: String(e.message || e) });
+    if (!res.headersSent) res.status(500).json({ error: String(e.message || e) });
+    else res.destroy();
   } finally {
     if (renderSlotAcquired) releaseRenderSlot();
   }
