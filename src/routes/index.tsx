@@ -105,6 +105,15 @@ function Home() {
     if (isMobile) return 1;
     return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
   });
+  // Encodage serveur : imposé sur mobile (ffmpeg.wasm y sature la mémoire).
+  const [serverRender, setServerRender] = useState(false);
+  const [mobileDevice, setMobileDevice] = useState(false);
+  useEffect(() => {
+    const m = isMobileDevice();
+    setMobileDevice(m);
+    if (m) setServerRender(true);
+  }, []);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -1288,12 +1297,39 @@ function Home() {
 
             <div className="mb-4">
               <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
+                <span>Moteur d'encodage</span>
+                <span className="text-[10px] normal-case tracking-normal text-white/40">
+                  {mobileDevice ? "mobile détecté" : "ordinateur détecté"}
+                </span>
+              </div>
+              <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={serverRender}
+                    onChange={(e) => setServerRender(e.target.checked)}
+                    disabled={busy || mobileDevice}
+                    className="mt-1 accent-[#39FF14]"
+                  />
+                  <span className="text-xs text-white/70">
+                    Rendu sur le serveur ✦
+                    <span className="mt-1 block text-[10px] text-white/40">
+                      {mobileDevice
+                        ? "Activé d'office sur mobile : l'encodage part sur le serveur ffmpeg, ton téléphone ne fait plus que l'upload et le téléchargement."
+                        : "Décoché, l'encodage reste dans ton navigateur (gratuit). Coché, il part sur le serveur ffmpeg (plus rapide, aucune limite mémoire)."}
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
                 <span>Pool de rendu FFmpeg</span>
                 <span className="text-[10px] normal-case tracking-normal text-white/40">
-                  workers parallèles dans ton navigateur
+                  {serverRender ? "rendus simultanés côté serveur" : "workers parallèles dans ton navigateur"}
                 </span>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+
                 <label className="flex flex-col gap-1">
                   <span className="text-[11px] uppercase tracking-widest text-white/50">
                     Nombre de workers ({poolSize})
