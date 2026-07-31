@@ -260,7 +260,7 @@ function Home() {
           promoPause: {
             enabled: promoEnabled && !!promoVoice,
             atSec: promoAt,
-            durationSec: (promoVoiceDur || 4) + 0.4,
+            durationSec: (promoVoiceDur || 4) + 1.4,
             voice: promoVoice,
           },
 

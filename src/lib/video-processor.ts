@@ -10,6 +10,7 @@ import {
   sourceFingerprint,
 } from "./segment-cache";
 import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
+import pauseLogoAsset from "@/assets/promo-pause-logo.png.asset.json";
 export { clearSegmentCache } from "./segment-cache";
 export { suggestedPoolSize } from "./ffmpeg-pool";
 
