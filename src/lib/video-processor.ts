@@ -730,6 +730,9 @@ export async function processVideo(opts: {
             zoomPunch,
             attemptPromo,
           );
+          if (!filter.includes("[vencoded]")) {
+            throw new Error("Graphe vidéo invalide : sortie vencoded absente");
+          }
           return pool.run<{ mp4: ArrayBuffer }>((w) =>
             w.send({
               type: "render",
@@ -745,6 +748,9 @@ export async function processVideo(opts: {
               hasPromo: !!attemptPromo,
               hasVoice: !!attemptPromo?.hasVoice,
               hasLogo: !!attemptPromo?.hasLogo,
+              outputWidth: profile.width,
+              outputHeight: profile.height,
+              outputFps: profile.fps,
             }),
 
           );
