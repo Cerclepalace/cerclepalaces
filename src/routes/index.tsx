@@ -87,7 +87,11 @@ function Home() {
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
   const [wordByWord, setWordByWord] = useState(true);
-  const [brandedFrame, setBrandedFrame] = useState(true);
+  const [brandedFrame, setBrandedFrame] = useState(false);
+  const [promoEnabled, setPromoEnabled] = useState(true);
+  const [promoAt, setPromoAt] = useState(10);
+  const [promoVoice, setPromoVoice] = useState<File | null>(null);
+  const [promoVoiceDur, setPromoVoiceDur] = useState(0);
   const [zoomPunch, setZoomPunch] = useState(false);
   const [poolSize, setPoolSize] = useState(() => {
     if (typeof navigator === "undefined") return 2;
@@ -253,6 +257,12 @@ function Home() {
           wordByWord,
           brandedFrame,
           zoomPunch,
+          promoPause: {
+            enabled: promoEnabled && !!promoVoice,
+            atSec: promoAt,
+            durationSec: (promoVoiceDur || 4) + 0.4,
+            voice: promoVoice,
+          },
 
           signal: controller.signal,
           onProgress: (info) => {
@@ -317,6 +327,10 @@ function Home() {
       wordByWord,
       brandedFrame,
       zoomPunch,
+      promoEnabled,
+      promoAt,
+      promoVoice,
+      promoVoiceDur,
     ],
   );
 
@@ -1087,6 +1101,69 @@ function Home() {
             </div>
 
 
+
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm uppercase tracking-widest text-white/60">Pause promo + voix off</div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPromoEnabled((v) => !v)}
+                  className="rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-widest"
+                  style={{
+                    borderColor: promoEnabled ? "#39FF14" : "rgba(255,255,255,0.2)",
+                    color: promoEnabled ? "#39FF14" : "rgba(255,255,255,0.6)",
+                  }}
+                >
+                  {promoEnabled ? "Activée" : "Désactivée"}
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-white/50">
+                La vidéo se fige à l'instant choisi, ta voix off énonce le message, puis la vidéo reprend.
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col text-xs text-white/70">
+                  <span className="mb-1">Pause à {promoAt}s du short</span>
+                  <input
+                    type="range"
+                    min={3}
+                    max={40}
+                    step={1}
+                    value={promoAt}
+                    disabled={busy || !promoEnabled}
+                    onChange={(e) => setPromoAt(Number(e.target.value))}
+                    className="accent-[#39FF14]"
+                  />
+                </label>
+                <label className="flex flex-col text-xs text-white/70">
+                  <span className="mb-1">
+                    Voix off {promoVoice ? `— ${promoVoice.name} (${promoVoiceDur.toFixed(1)}s)` : "(mp3 / wav)"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="audio/mpeg,audio/mp3,audio/wav,audio/*"
+                    disabled={busy || !promoEnabled}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setPromoVoice(f);
+                      setPromoVoiceDur(0);
+                      if (f) {
+                        const a = new Audio(URL.createObjectURL(f));
+                        a.addEventListener("loadedmetadata", () => {
+                          if (Number.isFinite(a.duration)) setPromoVoiceDur(a.duration);
+                        });
+                      }
+                    }}
+                    className="text-xs text-white/60 file:mr-3 file:rounded-full file:border-0 file:bg-[#39FF14] file:px-3 file:py-1 file:text-xs file:font-bold file:text-black"
+                  />
+                </label>
+              </div>
+              {promoEnabled && !promoVoice && (
+                <p className="mt-2 text-xs text-yellow-300/80">
+                  Dépose un fichier audio pour activer la pause.
+                </p>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
               <Button
