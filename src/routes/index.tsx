@@ -404,10 +404,10 @@ function Home() {
         setBusy(false);
         setProgress(null);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+
       file,
       segmentSec,
       fontKey,
