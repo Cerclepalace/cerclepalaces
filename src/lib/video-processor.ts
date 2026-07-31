@@ -489,7 +489,10 @@ export async function processVideo(opts: {
   onMetric?: MetricsCallback;
   throttle?: ThrottleOptions;
   poolSize?: number;
+  /** true = encodage sur le service ffmpeg serveur (par défaut sur mobile) */
+  remote?: boolean;
   signal?: AbortSignal;
+
   wordByWord?: boolean;
   brandedFrame?: boolean;
   zoomPunch?: boolean;
@@ -555,15 +558,37 @@ export async function processVideo(opts: {
   }
 
   throwIfAborted(signal);
-  onProgress({ phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})` });
-  const pool = await FFmpegPool.create({
-    size: desiredPoolSize,
-    inputBytes,
-    voiceBytes,
-    logoBytes,
-    fonts: fontsToLoad,
-    onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
-  });
+  const useRemote = opts.remote ?? isMobileDevice();
+  const pool: RenderBackend = useRemote
+    ? await (async () => {
+        onProgress({ phase: "Envoi de la vidéo au serveur de rendu", progress: 0 });
+        return RemoteRenderPool.create({
+          size: desiredPoolSize,
+          inputBytes,
+          voiceBytes,
+          logoBytes,
+          fonts: fontsToLoad,
+          onUploadProgress: (f) =>
+            onProgress({
+              phase: `Envoi au serveur ${Math.round(f * 100)}%`,
+              progress: f,
+            }),
+        });
+      })()
+    : await (async () => {
+        onProgress({
+          phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})`,
+        });
+        return FFmpegPool.create({
+          size: desiredPoolSize,
+          inputBytes,
+          voiceBytes,
+          logoBytes,
+          fonts: fontsToLoad,
+          onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
+        });
+      })();
+
 
   // Kill the pool as soon as the caller aborts — this rejects every in-flight
   // worker send with "pool terminated" and unblocks Promise.all below.
