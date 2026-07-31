@@ -101,10 +101,9 @@ export class RemoteRenderPool {
       session.baseUrl,
       session.token,
       sessionId,
-      // Le service sérialise les rendus (MAX_RENDER_CONCURRENCY) : au-delà de 2
-      // requêtes en vol, les connexions restent ouvertes trop longtemps et iOS
-      // les coupe avec "Load failed".
-      Math.max(1, Math.min(2, opts.size)),
+      // Une seule requête lourde à la fois. La concurrence des rendus était
+      // dupliquée entre le navigateur et Railway et saturait la RAM du service.
+      1,
       opts,
     );
   }
@@ -197,71 +196,43 @@ export class RemoteRenderPool {
       }
     };
 
-    // Ici on ne reprend que les vraies coupures réseau. Les erreurs FFmpeg 5xx
-    // sont déterministes : les rejouer trois fois à l'identique multipliait les
-    // 3 fallbacks du pipeline en 9 encodages et donnait une reprise « infinie ».
-    const maxAttempts = 2;
-    let lastError = "connexion interrompue";
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      let res: Response;
-      try {
-        res = await doFetch(await this.freshToken());
-      } catch (error) {
-        // Coupure réseau mobile / connexion fermée par iOS ("Load failed").
-        lastError =
-          error instanceof DOMException && error.name === "AbortError"
-            ? "délai maximal dépassé"
-            : error instanceof Error
-              ? error.message
-              : "connexion interrompue";
-        if (this.closed || attempt === maxAttempts) break;
-        await new Promise((r) => setTimeout(r, 1500 * attempt));
-        continue;
-      }
-
-      if (res.status === 401) {
-        res = await doFetch(await this.freshToken(true));
-      }
-      if (res.status === 404) {
-        // Session perdue (redéploiement / veille du service) : on la recrée.
-        const previous = this.sessionId;
-        try {
-          await this.recreateSession(previous);
-        } catch (e) {
-          lastError = e instanceof Error ? e.message : "session perdue";
-          break;
-        }
-        if (attempt < maxAttempts) continue;
-      }
-      if (res.status >= 500) {
-        let detail = `${res.status}`;
-        try {
-          const j = (await res.json()) as { error?: string };
-          if (j.error) detail = j.error;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(`Rendu serveur: ${detail}`);
-      }
-      if (!res.ok) {
-        let detail = `${res.status}`;
-        try {
-          const j = (await res.json()) as { error?: string };
-          if (j.error) detail = j.error;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(`Rendu serveur: ${detail}`);
-      }
-
-      if (isExtract) return res.json();
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength === 0) throw new Error("Rendu serveur: fichier vide");
-      return { mp4: buf };
+    // Le pipeline parent possède déjà ses trois essais progressifs. Le
+    // transport ne réessaie donc pas en plus : cela évite 3 × N encodages et
+    // garantit qu'un segment quitte toujours l'état « Reprise ».
+    let res: Response;
+    try {
+      res = await doFetch(await this.freshToken());
+    } catch (error) {
+      const detail =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "délai maximal dépassé"
+          : error instanceof Error
+            ? error.message
+            : "connexion interrompue";
+      throw new Error(`Service de rendu momentanément indisponible (${detail})`);
     }
 
-    throw new Error(`Service de rendu momentanément indisponible (${lastError})`);
+    if (res.status === 401) res = await doFetch(await this.freshToken(true));
+    if (res.status === 404) {
+      const previous = this.sessionId;
+      await this.recreateSession(previous);
+      res = await doFetch(await this.freshToken());
+    }
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string; message?: string };
+        detail = body.error || body.message || detail;
+      } catch {
+        /* réponse non JSON du proxy */
+      }
+      throw new Error(`Rendu serveur: ${detail}`);
+    }
+
+    if (isExtract) return res.json();
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength === 0) throw new Error("Rendu serveur: fichier vide");
+    return { mp4: buf };
   }
 
 
