@@ -731,7 +731,13 @@ export async function processVideo(opts: {
       cueCount: cues.length,
     });
 
+    onProgress({
+      phase: `Encodage du segment ${i + 1}/${totalSegments}…`,
+      segmentIndex: i,
+      totalSegments,
+    });
     // ── render (dispatched to any free worker) ────────────────────────────────
+
     try {
       // Pause promo : image figée à l'instant choisi, voix off par-dessus.
       const promo: PromoPause | null =
