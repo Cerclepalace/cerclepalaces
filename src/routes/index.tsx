@@ -1654,6 +1654,8 @@ function Dashboard({
   doneCount: number;
   onRetry: (index: number) => void | Promise<void>;
   maxManualRetries: number;
+  serverRender: boolean;
+
 }) {
   const rows = Object.values(metrics).sort((a, b) => a.index - b.index);
   if (rows.length === 0) return null;
