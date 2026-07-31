@@ -530,7 +530,20 @@ export async function processVideo(opts: {
   } | null;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
-  const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const requestedProfile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const useRemote = opts.remote ?? isMobileDevice();
+  // Railway est volontairement limité à un canvas 720p. Un unique encodage
+  // 1080x1920 suffit à dépasser la mémoire de la petite instance et provoque
+  // un 502 sans réponse. On conserve une compression de qualité, les sous-
+  // titres et tous les effets, mais sur une géométrie fiable côté serveur.
+  const profile: RenderProfile = useRemote
+    ? {
+        ...RENDER_PROFILES.fast,
+        crf: opts.renderMode === "premium" ? "22" : "25",
+        audioBitrate: opts.renderMode === "premium" ? "128k" : "96k",
+        preset: "ultrafast",
+      }
+    : requestedProfile;
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
@@ -584,7 +597,6 @@ export async function processVideo(opts: {
   }
 
   throwIfAborted(signal);
-  const useRemote = opts.remote ?? isMobileDevice();
   const pool: RenderBackend = useRemote
     ? await (async () => {
         onProgress({ phase: "Envoi de la vidéo au serveur de rendu", progress: 0 });

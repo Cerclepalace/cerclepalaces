@@ -22,7 +22,9 @@ const PORT = Number(process.env.PORT || 8080);
 const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
-const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 2));
+// Une instance Railway standard ne tient pas deux encodages verticaux en RAM.
+// La file reste configurable, mais le réglage sûr doit être celui par défaut.
+const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
 const FFMPEG_TIMEOUT_MS = Math.max(
   60_000,
   Number(process.env.FFMPEG_TIMEOUT_MS || 4 * 60 * 1000),
@@ -297,7 +299,7 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
         "-map", "[vencoded]",
         ...(hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
         "-c:v", "libx264",
-        "-threads", "2",
+        "-threads", "1",
         "-preset", String(preset),
         "-crf", String(crf),
         "-pix_fmt", "yuv420p",
