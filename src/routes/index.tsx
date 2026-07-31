@@ -142,10 +142,13 @@ function Home() {
 
   const handleFile = async (f: File | null) => {
     if (!f) return;
-    if (!f.type.startsWith("video/")) {
+    const looksVideo =
+      f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(f.name);
+    if (!looksVideo) {
       setError("Fichier vidéo requis (mp4, mov, webm…)");
       return;
     }
+
     if (f.size > 500 * 1024 * 1024) {
       setError("Vidéo trop lourde (> 500 Mo). Compresse-la d'abord.");
       return;
@@ -649,13 +652,7 @@ function Home() {
             2 · DÉPOSE LE FICHIER
           </div>
           <div
-            role="button"
-            tabIndex={0}
-            onClick={() => inputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-            }}
-            className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
+            className="relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -677,18 +674,21 @@ function Home() {
             >
               Choisir un fichier
             </span>
+            {/* input transparent au-dessus de toute la zone : fiable sur iOS/Android */}
+            <input
+              id="video-input"
+              ref={inputRef}
+              type="file"
+              accept="video/*"
+              aria-label="Choisir une vidéo"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              onChange={(e) => {
+                void handleFile(e.target.files?.[0] ?? null);
+                e.target.value = "";
+              }}
+            />
           </div>
-          <input
-            id="video-input"
-            ref={inputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,video/webm,video/*"
-            className="sr-only"
-            onChange={(e) => {
-              void handleFile(e.target.files?.[0] ?? null);
-              e.target.value = "";
-            }}
-          />
+
         </section>
 
         {file && (
@@ -1074,11 +1074,28 @@ function Home() {
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <div className="mb-1 text-xs text-white/50">Début : {fmtTime(trimStart)}</div>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-white/50">
+                        <span>Début</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={Math.max(0, (duration || 36000) - 5)}
+                          step={1}
+                          value={Math.round(trimStart)}
+                          onChange={(e) => {
+                            const v = Math.max(0, Number(e.target.value) || 0);
+                            setTrimStart(Math.min(v, Math.max(0, (trimEnd || 5) - 5)));
+                          }}
+                          disabled={busy}
+                          className="w-24 rounded border border-white/15 bg-black/40 px-2 py-1 text-sm text-white focus:border-[#39FF14] focus:outline-none"
+                        />
+                        <span>s · {fmtTime(trimStart)}</span>
+                      </div>
                       <input
                         type="range"
                         min={0}
-                        max={Math.max(0, duration - 5)}
+                        max={Math.max(1, duration - 5)}
                         step={1}
                         value={trimStart}
                         onChange={(e) => {
@@ -1086,11 +1103,29 @@ function Home() {
                           setTrimStart(Math.min(v, trimEnd - 5));
                         }}
                         className="w-full accent-[#39FF14]"
-                        disabled={busy}
+                        disabled={busy || !duration}
                       />
                     </div>
                     <div>
-                      <div className="mb-1 text-xs text-white/50">Fin : {fmtTime(trimEnd)}</div>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-white/50">
+                        <span>Fin</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={5}
+                          max={duration || 36000}
+                          step={1}
+                          value={Math.round(trimEnd)}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            const cap = duration ? Math.min(v, duration) : v;
+                            setTrimEnd(Math.max(cap, trimStart + 5));
+                          }}
+                          disabled={busy}
+                          className="w-24 rounded border border-white/15 bg-black/40 px-2 py-1 text-sm text-white focus:border-[#39FF14] focus:outline-none"
+                        />
+                        <span>s · {fmtTime(trimEnd)}</span>
+                      </div>
                       <input
                         type="range"
                         min={5}
@@ -1102,10 +1137,11 @@ function Home() {
                           setTrimEnd(Math.max(v, trimStart + 5));
                         }}
                         className="w-full accent-[#39FF14]"
-                        disabled={busy}
+                        disabled={busy || !duration}
                       />
                     </div>
                   </div>
+
                 </div>
 
                 {/* SEGMENT LENGTH */}
