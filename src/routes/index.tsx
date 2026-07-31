@@ -649,13 +649,7 @@ function Home() {
             2 · DÉPOSE LE FICHIER
           </div>
           <div
-            role="button"
-            tabIndex={0}
-            onClick={() => inputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-            }}
-            className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
+            className="relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-black/30 px-6 py-12 text-center transition hover:border-[#39FF14]/60 hover:bg-[#39FF14]/5"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -677,18 +671,21 @@ function Home() {
             >
               Choisir un fichier
             </span>
+            {/* input transparent au-dessus de toute la zone : fiable sur iOS/Android */}
+            <input
+              id="video-input"
+              ref={inputRef}
+              type="file"
+              accept="video/*"
+              aria-label="Choisir une vidéo"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              onChange={(e) => {
+                void handleFile(e.target.files?.[0] ?? null);
+                e.target.value = "";
+              }}
+            />
           </div>
-          <input
-            id="video-input"
-            ref={inputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,video/webm,video/*"
-            className="sr-only"
-            onChange={(e) => {
-              void handleFile(e.target.files?.[0] ?? null);
-              e.target.value = "";
-            }}
-          />
+
         </section>
 
         {file && (
