@@ -396,16 +396,21 @@ function buildVideoFilter(
   zoomPunch: boolean,
   promo?: PromoPause | null,
 ): string {
-  const fgScale = zoomPunch
-    // Subtle continuous zoom (1.00 -> 1.06 over ~5s loops) for kinetic feel.
-    ? `[fg]scale=${profile.width}:-2,zoompan=z='min(zoom+0.0006,1.06)':d=1:s=${profile.width}x${profile.height}:fps=${profile.fps}[fgs]`
-    : `[fg]scale=${profile.width}:-2[fgs]`;
+  // Cadrage : la source garde son ratio (scale "decrease"), jamais d'étirement.
+  const fgScale = `[fg]scale=${profile.width}:${profile.height}:force_original_aspect_ratio=decrease[fgs]`;
   const base = [
     "[0:v]split=2[bg][fg]",
     `[bg]scale=${profile.bgWidth}:${profile.bgHeight}:force_original_aspect_ratio=increase,crop=${profile.bgWidth}:${profile.bgHeight},boxblur=${profile.blur},scale=${profile.width}:${profile.height},eq=brightness=-0.1[bgblur]`,
     fgScale,
-    `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[v]`,
+    `[bgblur][fgs]overlay=(W-w)/2:(H-h)/2,fps=${profile.fps}[vraw]`,
   ];
+  // Zoom kinétique appliqué sur le canvas final (donc sans déformation).
+  base.push(
+    zoomPunch
+      ? `[vraw]zoompan=z='min(zoom+0.0006,1.06)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${profile.width}x${profile.height}:fps=${profile.fps}[v]`
+      : `[vraw]null[v]`,
+  );
+
   const subLabel = hasCues ? "[vs]" : "[vs]";
   base.push(hasCues ? `[v]subtitles=${assName}:fontsdir=/fonts${subLabel}` : `[v]null${subLabel}`);
   const vEnd = promo ? "[vpre]" : "[vout]";
