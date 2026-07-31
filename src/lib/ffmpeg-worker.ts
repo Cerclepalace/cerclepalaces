@@ -91,6 +91,9 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
         await inst.writeFile(`/fonts/${f.file}`, new Uint8Array(f.bytes));
       }
       await inst.writeFile("input.mp4", new Uint8Array(msg.inputBytes));
+      if (msg.voiceBytes) {
+        await inst.writeFile("promo_vo.mp3", new Uint8Array(msg.voiceBytes));
+      }
       post({ type: "ok", id: msg.id });
       return;
     }
@@ -123,9 +126,10 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
           "-ss", msg.start.toFixed(3),
           "-i", "input.mp4",
           "-t", msg.duration.toFixed(3),
+          ...(msg.hasPromo && msg.hasVoice ? ["-i", "promo_vo.mp3"] : []),
           "-filter_complex", msg.filter,
           "-map", "[vout]",
-          "-map", "0:a?",
+          ...(msg.hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
           "-c:v", "libx264",
           "-preset", msg.preset ?? "ultrafast",
           "-crf", msg.crf,
