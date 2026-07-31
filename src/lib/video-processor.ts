@@ -538,20 +538,9 @@ export async function processVideo(opts: {
     );
   }
 
-  const requestedProfile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   const useRemote = opts.remote ?? isMobileDevice();
-  // Railway est volontairement limité à un canvas 720p. Un unique encodage
-  // 1080x1920 suffit à dépasser la mémoire de la petite instance et provoque
-  // un 502 sans réponse. On conserve une compression de qualité, les sous-
-  // titres et tous les effets, mais sur une géométrie fiable côté serveur.
-  const profile: RenderProfile = useRemote
-    ? {
-        ...RENDER_PROFILES.fast,
-        crf: opts.renderMode === "premium" ? "22" : "25",
-        audioBitrate: opts.renderMode === "premium" ? "128k" : "96k",
-        preset: "ultrafast",
-      }
-    : { ...requestedProfile, preset: "ultrafast" };
+  const profile: RenderProfile = useRemote ? REMOTE_PROFILE : LOCAL_PROFILE;
+
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
