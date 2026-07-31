@@ -299,25 +299,32 @@ export function computeSegments(
   trim: { start: number; end: number },
   custom?: SegmentRange[],
 ): SegmentRange[] {
+  // Un short ne doit jamais dépasser la durée cible : toute plage trop longue
+  // (moment détecté mal borné, saisie manuelle type "0-300") est redécoupée.
+  const maxLen = Math.max(10, Math.min(90, segmentSec || 70));
   if (custom && custom.length > 0) {
-    return custom
-      .map((s) => ({
-        start: Math.max(0, Math.min(durationSec, s.start)),
-        end: Math.max(0, Math.min(durationSec, s.end)),
-      }))
-      .filter((s) => s.end - s.start >= 5);
+    const out: SegmentRange[] = [];
+    for (const s of custom) {
+      const start = Math.max(0, Math.min(durationSec, Math.min(s.start, s.end)));
+      const end = Math.max(0, Math.min(durationSec, Math.max(s.start, s.end)));
+      let cur = start;
+      while (end - cur >= 5) {
+        const stop = Math.min(end, cur + maxLen);
+        if (stop - cur >= 5) out.push({ start: cur, end: stop });
+        cur = stop;
+      }
+    }
+    return out.sort((a, b) => a.start - b.start);
   }
+
   const from = Math.max(0, Math.min(durationSec, trim.start));
   const to = Math.max(from, Math.min(durationSec, trim.end || durationSec));
-  const usable = to - from;
-  const total = Math.max(1, Math.floor(usable / segmentSec));
   const out: SegmentRange[] = [];
-  for (let i = 0; i < total; i++) {
-    const start = from + i * segmentSec;
-    const end = Math.min(to, start + segmentSec);
-    if (end - start >= 10) out.push({ start, end });
+  for (let start = from; to - start >= 10; start += maxLen) {
+    out.push({ start, end: Math.min(to, start + maxLen) });
   }
   return out;
+
 }
 
 export type SegmentMetric = {
