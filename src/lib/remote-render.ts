@@ -58,6 +58,7 @@ export class RemoteRenderPool {
   private active = 0;
   private queue: Array<() => void> = [];
   private closed = false;
+  private refreshing: Promise<string> | null = null;
 
   static async create(opts: RemoteInit): Promise<RemoteRenderPool> {
     const session = await getRenderSession();
@@ -116,15 +117,44 @@ export class RemoteRenderPool {
     this.queue.shift()?.();
   }
 
+  /** Le jeton HMAC expire au bout de 15 min : sur un gros rendu il faut le renouveler. */
+  private tokenExpiry(): number {
+    const exp = Number(String(this.token).split(".")[0]);
+    return Number.isFinite(exp) ? exp : 0;
+  }
+
+  private async freshToken(force = false): Promise<string> {
+    if (!force && Date.now() < this.tokenExpiry() - 60_000) return this.token;
+    if (!this.refreshing) {
+      this.refreshing = getRenderSession()
+        .then((s) => {
+          if (s.available) this.token = s.token;
+          return this.token;
+        })
+        .finally(() => {
+          this.refreshing = null;
+        });
+    }
+    return this.refreshing;
+  }
+
   private async call(msg: Record<string, unknown>): Promise<unknown> {
     if (this.closed) throw new Error("Session de rendu fermée");
     const type = msg.type as string;
     const url = `${this.baseUrl}/session/${this.sessionId}/${type === "extract" ? "extract" : "render"}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.token}` },
-      body: JSON.stringify(msg),
-    });
+
+    const doFetch = async (token: string) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(msg),
+      });
+
+    let res = await doFetch(await this.freshToken());
+    if (res.status === 401) {
+      // jeton périmé pendant un long rendu : on le renouvelle et on rejoue une fois
+      res = await doFetch(await this.freshToken(true));
+    }
     if (!res.ok) {
       let detail = `${res.status}`;
       try {
@@ -139,6 +169,7 @@ export class RemoteRenderPool {
     const buf = await res.arrayBuffer();
     return { mp4: buf };
   }
+
 
   async run<T>(fn: (w: Sendable) => Promise<T>): Promise<T> {
     await this.acquire();
