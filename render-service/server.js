@@ -156,6 +156,33 @@ function releaseRenderSlot() {
   renderQueue.shift()?.();
 }
 
+/**
+ * Maintient la compatibilité avec les clients déjà ouverts pendant un
+ * déploiement. Certaines anciennes versions terminaient le graphe par [vout]
+ * (ou envoyaient un filtre vide), alors que le serveur mappe [vencoded].
+ */
+function ensureVideoOutput(filter, width, height, fps) {
+  const graph = String(filter || "").trim().replace(/fontsdir=\/fonts/g, "fontsdir=fonts");
+  if (/\[vencoded\]/.test(graph)) return graph;
+
+  const normalize = `scale=${width}:${height}:flags=lanczos,setsar=1,fps=${fps},format=yuv420p[vencoded]`;
+  for (const label of ["vout", "vpre", "vs", "v", "vraw"]) {
+    if (new RegExp(`\\[${label}\\]`).test(graph)) {
+      return `${graph};[${label}]${normalize}`;
+    }
+  }
+
+  // Dernier filet de sécurité : un short cadré correctement vaut mieux qu'un
+  // échec total si un ancien client n'a pas transmis son graphe de filtres.
+  return (
+    `[0:v]split=2[bg][fg];` +
+    `[bg]scale=${Math.max(2, Math.round(width / 2))}:${Math.max(2, Math.round(height / 2))}:force_original_aspect_ratio=increase,` +
+    `crop=${Math.max(2, Math.round(width / 2))}:${Math.max(2, Math.round(height / 2))},boxblur=14:1,scale=${width}:${height}[bgv];` +
+    `[fg]scale=${width}:${height}:force_original_aspect_ratio=decrease[fgv];` +
+    `[bgv][fgv]overlay=(W-w)/2:(H-h)/2,${normalize}`
+  );
+}
+
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // Ouvre une session et reçoit la vidéo source + assets.
@@ -221,13 +248,19 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
     hasPromo = false,
     hasVoice = false,
     hasLogo = false,
+    outputWidth = 1080,
+    outputHeight = 1920,
+    outputFps = 30,
   } = req.body || {};
 
   const assName = `subs_${index}.ass`;
   const outName = `out_${index}.mp4`;
+  const safeWidth = Math.max(2, Math.min(2160, Math.round(Number(outputWidth) || 1080)));
+  const safeHeight = Math.max(2, Math.min(3840, Math.round(Number(outputHeight) || 1920)));
+  const safeFps = Math.max(1, Math.min(60, Math.round(Number(outputFps) || 30)));
   // Le client cible /fonts (FS virtuel du worker) ; ici les polices sont dans
-  // le dossier de session.
-  const localFilter = String(filter).replace(/fontsdir=\/fonts/g, "fontsdir=fonts");
+  // le dossier de session. Répare aussi les graphes issus d'un client ancien.
+  const localFilter = ensureVideoOutput(filter, safeWidth, safeHeight, safeFps);
   let renderSlotAcquired = false;
 
   try {
