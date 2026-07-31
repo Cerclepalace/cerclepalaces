@@ -385,6 +385,9 @@ function Home() {
       manualText,
       smart,
       smartCount,
+      moments,
+      selectedMoments,
+
 
       maxConcurrent,
       rpm,
