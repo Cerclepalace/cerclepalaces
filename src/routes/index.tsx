@@ -87,7 +87,11 @@ function Home() {
   const [maxConcurrent, setMaxConcurrent] = useState(4);
   const [rpm, setRpm] = useState(30);
   const [wordByWord, setWordByWord] = useState(true);
-  const [brandedFrame, setBrandedFrame] = useState(true);
+  const [brandedFrame, setBrandedFrame] = useState(false);
+  const [promoEnabled, setPromoEnabled] = useState(true);
+  const [promoAt, setPromoAt] = useState(10);
+  const [promoVoice, setPromoVoice] = useState<File | null>(null);
+  const [promoVoiceDur, setPromoVoiceDur] = useState(0);
   const [zoomPunch, setZoomPunch] = useState(false);
   const [poolSize, setPoolSize] = useState(() => {
     if (typeof navigator === "undefined") return 2;
@@ -253,6 +257,12 @@ function Home() {
           wordByWord,
           brandedFrame,
           zoomPunch,
+          promoPause: {
+            enabled: promoEnabled && !!promoVoice,
+            atSec: promoAt,
+            durationSec: (promoVoiceDur || 4) + 0.4,
+            voice: promoVoice,
+          },
 
           signal: controller.signal,
           onProgress: (info) => {
