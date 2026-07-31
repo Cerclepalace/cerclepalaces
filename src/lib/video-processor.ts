@@ -9,7 +9,7 @@ import {
   setCachedCues,
   sourceFingerprint,
 } from "./segment-cache";
-import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
+import { FFmpegPool } from "./ffmpeg-pool";
 import { RemoteRenderPool, isMobileDevice } from "./remote-render";
 import pauseLogoAsset from "@/assets/promo-pause-logo.png.asset.json";
 
