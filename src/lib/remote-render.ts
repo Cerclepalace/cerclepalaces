@@ -53,21 +53,20 @@ export class RemoteRenderPool {
     private token: string,
     private sessionId: string,
     private concurrency: number,
+    private assets: RemoteInit,
   ) {}
 
   private active = 0;
   private queue: Array<() => void> = [];
   private closed = false;
   private refreshing: Promise<string> | null = null;
+  private recreating: Promise<string> | null = null;
 
-  static async create(opts: RemoteInit): Promise<RemoteRenderPool> {
-    const session = await getRenderSession();
-    if (!session.available) {
-      throw new Error(
-        "Rendu serveur indisponible : configure RENDER_SERVICE_URL et RENDER_SERVICE_SECRET.",
-      );
-    }
-
+  private static async openSession(
+    opts: RemoteInit,
+    baseUrl: string,
+    token: string,
+  ): Promise<string> {
     const form = new FormData();
     form.append("input", new Blob([opts.inputBytes], { type: "video/mp4" }), "input.mp4");
     if (opts.voiceBytes) {
@@ -79,19 +78,34 @@ export class RemoteRenderPool {
     for (const f of opts.fonts) {
       form.append("font", new Blob([f.bytes], { type: "font/ttf" }), f.file);
     }
-
     const { sessionId } = await uploadWithProgress(
-      `${session.baseUrl}/session`,
-      session.token,
+      `${baseUrl}/session`,
+      token,
       form,
       opts.onUploadProgress,
     );
+    return sessionId;
+  }
+
+  static async create(opts: RemoteInit): Promise<RemoteRenderPool> {
+    const session = await getRenderSession();
+    if (!session.available) {
+      throw new Error(
+        "Rendu serveur indisponible : configure RENDER_SERVICE_URL et RENDER_SERVICE_SECRET.",
+      );
+    }
+
+    const sessionId = await RemoteRenderPool.openSession(opts, session.baseUrl, session.token);
 
     return new RemoteRenderPool(
       session.baseUrl,
       session.token,
       sessionId,
-      Math.max(1, Math.min(4, opts.size)),
+      // Le service sérialise les rendus (MAX_RENDER_CONCURRENCY) : au-delà de 2
+      // requêtes en vol, les connexions restent ouvertes trop longtemps et iOS
+      // les coupe avec "Load failed".
+      Math.max(1, Math.min(2, opts.size)),
+      opts,
     );
   }
 
@@ -138,43 +152,96 @@ export class RemoteRenderPool {
     return this.refreshing;
   }
 
+  /** Le service a redémarré et a perdu la session : on ré-uploade la source une seule fois. */
+  private async recreateSession(previous: string): Promise<string> {
+    if (this.sessionId !== previous) return this.sessionId;
+    if (!this.recreating) {
+      this.recreating = (async () => {
+        const token = await this.freshToken(true);
+        this.sessionId = await RemoteRenderPool.openSession(
+          { ...this.assets, onUploadProgress: undefined },
+          this.baseUrl,
+          token,
+        );
+        return this.sessionId;
+      })().finally(() => {
+        this.recreating = null;
+      });
+    }
+    return this.recreating;
+  }
+
   private async call(msg: Record<string, unknown>): Promise<unknown> {
     if (this.closed) throw new Error("Session de rendu fermée");
     const type = msg.type as string;
-    const url = `${this.baseUrl}/session/${this.sessionId}/${type === "extract" ? "extract" : "render"}`;
+    const isExtract = type === "extract";
 
     const doFetch = async (token: string) =>
-      fetch(url, {
+      fetch(`${this.baseUrl}/session/${this.sessionId}/${isExtract ? "extract" : "render"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(msg),
       });
 
-    let res: Response;
-    try {
-      res = await doFetch(await this.freshToken());
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "connexion interrompue";
-      throw new Error(`Service de rendu momentanément indisponible (${detail})`);
-    }
-    if (res.status === 401) {
-      // jeton périmé pendant un long rendu : on le renouvelle et on rejoue une fois
-      res = await doFetch(await this.freshToken(true));
-    }
-    if (!res.ok) {
-      let detail = `${res.status}`;
+    const maxAttempts = 3;
+    let lastError = "connexion interrompue";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let res: Response;
       try {
-        const j = (await res.json()) as { error?: string };
-        if (j.error) detail = j.error;
-      } catch {
-        /* ignore */
+        res = await doFetch(await this.freshToken());
+      } catch (error) {
+        // Coupure réseau mobile / connexion fermée par iOS ("Load failed").
+        lastError = error instanceof Error ? error.message : "connexion interrompue";
+        if (this.closed || attempt === maxAttempts) break;
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
       }
-      throw new Error(`Rendu serveur: ${detail}`);
+
+      if (res.status === 401) {
+        res = await doFetch(await this.freshToken(true));
+      }
+      if (res.status === 404) {
+        // Session perdue (redéploiement / veille du service) : on la recrée.
+        const previous = this.sessionId;
+        try {
+          await this.recreateSession(previous);
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : "session perdue";
+          break;
+        }
+        if (attempt < maxAttempts) continue;
+      }
+      if (res.status >= 500 && attempt < maxAttempts) {
+        try {
+          const j = (await res.clone().json()) as { error?: string };
+          lastError = j.error || `${res.status}`;
+        } catch {
+          lastError = `${res.status}`;
+        }
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
+      }
+      if (!res.ok) {
+        let detail = `${res.status}`;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j.error) detail = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(`Rendu serveur: ${detail}`);
+      }
+
+      if (isExtract) return res.json();
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength === 0) throw new Error("Rendu serveur: fichier vide");
+      return { mp4: buf };
     }
-    if (type === "extract") return res.json();
-    const buf = await res.arrayBuffer();
-    return { mp4: buf };
+
+    throw new Error(`Service de rendu momentanément indisponible (${lastError})`);
   }
+
 
 
   async run<T>(fn: (w: Sendable) => Promise<T>): Promise<T> {

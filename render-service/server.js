@@ -22,7 +22,7 @@ const PORT = Number(process.env.PORT || 8080);
 const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
-const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
+const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 2));
 let activeRenders = 0;
 const renderQueue = [];
 
@@ -71,8 +71,19 @@ function sessionDir(id) {
 }
 
 async function touchSession(id) {
-  const s = sessions.get(id);
-  if (!s) return null;
+  let s = sessions.get(id);
+  if (!s) {
+    // Le service a pu redémarrer (déploiement, OOM) : les fichiers de session
+    // sont toujours sur le disque, on réhydrate au lieu de renvoyer un 404.
+    const dir = sessionDir(String(id).replace(/[^\w-]/g, ""));
+    try {
+      await fs.access(path.join(dir, "input.mp4"));
+      s = { dir, createdAt: Date.now() };
+      sessions.set(id, s);
+    } catch {
+      return null;
+    }
+  }
   s.createdAt = Date.now();
   return s;
 }
@@ -102,17 +113,30 @@ const upload = multer({
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 Go
 });
 
-function runFfmpeg(args, cwd) {
+function runFfmpeg(args, cwd, req) {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderr = "";
+    let aborted = false;
+    // Si le client (iPhone) coupe la connexion, on tue ffmpeg au lieu de laisser
+    // le CPU tourner pour rien et bloquer la file d'attente.
+    const onClose = () => {
+      aborted = true;
+      proc.kill("SIGKILL");
+    };
+    req?.once?.("aborted", onClose);
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 40_000) stderr = stderr.slice(-20_000);
     });
-    proc.on("error", reject);
+    proc.on("error", (e) => {
+      req?.off?.("aborted", onClose);
+      reject(e);
+    });
     proc.on("close", (code) => {
-      if (code === 0) resolve();
+      req?.off?.("aborted", onClose);
+      if (aborted) reject(new Error("client déconnecté"));
+      else if (code === 0) resolve();
       else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
     });
   });
@@ -170,6 +194,7 @@ app.post("/session/:id/extract", requireAuth, async (req, res) => {
         "-y", out,
       ],
       s.dir,
+      req,
     );
     const buf = await fs.readFile(path.join(s.dir, out));
     await fs.rm(path.join(s.dir, out), { force: true });
@@ -230,19 +255,26 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
         "-y", outName,
       ],
       s.dir,
+      req,
     );
     const full = path.join(s.dir, outName);
     const stat = await fs.stat(full);
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Content-Length", String(stat.size));
     const stream = createReadStream(full);
-    stream.pipe(res);
-    stream.on("close", () => {
-      fs.rm(full, { force: true }).catch(() => {});
-      fs.rm(path.join(s.dir, assName), { force: true }).catch(() => {});
+    await new Promise((resolve) => {
+      stream.pipe(res);
+      const cleanup = () => {
+        fs.rm(full, { force: true }).catch(() => {});
+        fs.rm(path.join(s.dir, assName), { force: true }).catch(() => {});
+        resolve();
+      };
+      stream.once("close", cleanup);
+      stream.once("error", cleanup);
     });
   } catch (e) {
-    res.status(500).json({ error: String(e.message || e) });
+    if (!res.headersSent) res.status(500).json({ error: String(e.message || e) });
+    else res.destroy();
   } finally {
     if (renderSlotAcquired) releaseRenderSlot();
   }
