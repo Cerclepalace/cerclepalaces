@@ -20,7 +20,9 @@ import {
   MAX_SHORT_SEC,
   type ViralMoment,
 } from "@/lib/viral-detect";
+import { isMobileDevice } from "@/lib/remote-render";
 import { Button } from "@/components/ui/button";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -105,6 +107,15 @@ function Home() {
     if (isMobile) return 1;
     return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
   });
+  // Encodage serveur : imposé sur mobile (ffmpeg.wasm y sature la mémoire).
+  const [serverRender, setServerRender] = useState(false);
+  const [mobileDevice, setMobileDevice] = useState(false);
+  useEffect(() => {
+    const m = isMobileDevice();
+    setMobileDevice(m);
+    if (m) setServerRender(true);
+  }, []);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -322,6 +333,8 @@ function Home() {
           smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          remote: serverRender,
+
           wordByWord,
           brandedFrame,
           zoomPunch,
@@ -395,6 +408,8 @@ function Home() {
       maxConcurrent,
       rpm,
       poolSize,
+      serverRender,
+
       wordByWord,
       brandedFrame,
       zoomPunch,
@@ -1288,12 +1303,39 @@ function Home() {
 
             <div className="mb-4">
               <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
+                <span>Moteur d'encodage</span>
+                <span className="text-[10px] normal-case tracking-normal text-white/40">
+                  {mobileDevice ? "mobile détecté" : "ordinateur détecté"}
+                </span>
+              </div>
+              <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={serverRender}
+                    onChange={(e) => setServerRender(e.target.checked)}
+                    disabled={busy || mobileDevice}
+                    className="mt-1 accent-[#39FF14]"
+                  />
+                  <span className="text-xs text-white/70">
+                    Rendu sur le serveur ✦
+                    <span className="mt-1 block text-[10px] text-white/40">
+                      {mobileDevice
+                        ? "Activé d'office sur mobile : l'encodage part sur le serveur ffmpeg, ton téléphone ne fait plus que l'upload et le téléchargement."
+                        : "Décoché, l'encodage reste dans ton navigateur (gratuit). Coché, il part sur le serveur ffmpeg (plus rapide, aucune limite mémoire)."}
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
                 <span>Pool de rendu FFmpeg</span>
                 <span className="text-[10px] normal-case tracking-normal text-white/40">
-                  workers parallèles dans ton navigateur
+                  {serverRender ? "rendus simultanés côté serveur" : "workers parallèles dans ton navigateur"}
                 </span>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+
                 <label className="flex flex-col gap-1">
                   <span className="text-[11px] uppercase tracking-widest text-white/50">
                     Nombre de workers ({poolSize})
@@ -1485,7 +1527,7 @@ function Home() {
               </div>
             )}
 
-            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} />
+            <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} serverRender={serverRender} />
           </section>
         )}
 
@@ -1602,6 +1644,8 @@ function Dashboard({
   doneCount,
   onRetry,
   maxManualRetries,
+  serverRender,
+
 }: {
   metrics: Record<number, SegmentMetric>;
   runStartMs: number | null;
@@ -1610,6 +1654,8 @@ function Dashboard({
   doneCount: number;
   onRetry: (index: number) => void | Promise<void>;
   maxManualRetries: number;
+  serverRender: boolean;
+
 }) {
   const rows = Object.values(metrics).sort((a, b) => a.index - b.index);
   if (rows.length === 0) return null;
@@ -1710,7 +1756,11 @@ function Dashboard({
           <tbody>
             {rows.map((r) => {
               const manualCount = r.manualAttempts ?? 0;
-              const canRetry = r.status === "error" && manualCount < maxManualRetries && !busy;
+              // La reprise manuelle utilise ffmpeg.wasm local : on la masque en
+              // rendu serveur (le pipeline retente déjà 3 fois côté serveur).
+              const canRetry =
+                r.status === "error" && manualCount < maxManualRetries && !busy && !serverRender;
+
               const retryExhausted = r.status === "error" && manualCount >= maxManualRetries;
               return (
                 <tr key={r.index} className="border-t border-white/5" title={r.lastError ?? undefined}>
