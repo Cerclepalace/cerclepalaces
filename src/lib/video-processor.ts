@@ -528,6 +528,15 @@ export async function processVideo(opts: {
   } | null;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
+
+  // Garde-fou mémoire : au-delà de 500 Mo, ffmpeg.wasm fait tomber l'onglet.
+  const MAX_INPUT_BYTES = 500 * 1024 * 1024;
+  if (file.size > MAX_INPUT_BYTES) {
+    throw new Error(
+      `Vidéo trop lourde (${(file.size / 1024 / 1024).toFixed(0)} Mo). Maximum autorisé : 500 Mo. Compresse ou raccourcis la vidéo avant de relancer.`,
+    );
+  }
+
   const requestedProfile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   const useRemote = opts.remote ?? isMobileDevice();
   // Railway est volontairement limité à un canvas 720p. Un unique encodage
@@ -541,7 +550,7 @@ export async function processVideo(opts: {
         audioBitrate: opts.renderMode === "premium" ? "128k" : "96k",
         preset: "ultrafast",
       }
-    : requestedProfile;
+    : { ...requestedProfile, preset: "ultrafast" };
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
@@ -554,7 +563,10 @@ export async function processVideo(opts: {
     : null;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
-  const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
+  // Les segments sont traités un par un pour ne jamais saturer la mémoire du
+  // navigateur : un seul moteur ffmpeg.wasm suffit.
+  const desiredPoolSize = 1;
+
 
   throwIfAborted(signal);
   onProgress({ phase: "Analyse de la durée" });
