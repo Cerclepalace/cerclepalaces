@@ -9,7 +9,7 @@ import {
   setCachedCues,
   sourceFingerprint,
 } from "./segment-cache";
-import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
+import { FFmpegPool } from "./ffmpeg-pool";
 import { RemoteRenderPool, isMobileDevice } from "./remote-render";
 import pauseLogoAsset from "@/assets/promo-pause-logo.png.asset.json";
 
@@ -528,6 +528,15 @@ export async function processVideo(opts: {
   } | null;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
+
+  // Garde-fou mémoire : au-delà de 500 Mo, ffmpeg.wasm fait tomber l'onglet.
+  const MAX_INPUT_BYTES = 500 * 1024 * 1024;
+  if (file.size > MAX_INPUT_BYTES) {
+    throw new Error(
+      `Vidéo trop lourde (${(file.size / 1024 / 1024).toFixed(0)} Mo). Maximum autorisé : 500 Mo. Compresse ou raccourcis la vidéo avant de relancer.`,
+    );
+  }
+
   const requestedProfile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   const useRemote = opts.remote ?? isMobileDevice();
   // Railway est volontairement limité à un canvas 720p. Un unique encodage
@@ -541,7 +550,7 @@ export async function processVideo(opts: {
         audioBitrate: opts.renderMode === "premium" ? "128k" : "96k",
         preset: "ultrafast",
       }
-    : requestedProfile;
+    : { ...requestedProfile, preset: "ultrafast" };
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
@@ -554,7 +563,10 @@ export async function processVideo(opts: {
     : null;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
-  const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
+  // Les segments sont traités un par un pour ne jamais saturer la mémoire du
+  // navigateur : un seul moteur ffmpeg.wasm suffit.
+  const desiredPoolSize = 1;
+
 
   throwIfAborted(signal);
   onProgress({ phase: "Analyse de la durée" });
@@ -601,18 +613,27 @@ export async function processVideo(opts: {
         });
       })()
     : await (async () => {
-        onProgress({
-          phase: `Démarrage du pool (${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""})`,
-        });
-        return FFmpegPool.create({
-          size: desiredPoolSize,
-          inputBytes,
-          voiceBytes,
-          logoBytes,
-          fonts: fontsToLoad,
-          onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
-        });
+        onProgress({ phase: "Chargement du moteur ffmpeg.wasm" });
+        try {
+          const created = await FFmpegPool.create({
+            size: desiredPoolSize,
+            inputBytes,
+            voiceBytes,
+            logoBytes,
+            fonts: fontsToLoad,
+            onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
+          });
+          onProgress({ phase: "Moteur ffmpeg.wasm prêt" });
+          return created;
+        } catch (e) {
+          const msg = (e as Error).message || "raison inconnue";
+          onLog?.(`Échec du chargement de ffmpeg.wasm : ${msg}`);
+          throw new Error(
+            `Impossible de charger le moteur vidéo ffmpeg.wasm (${msg}). Vérifie ta connexion, recharge la page, ou active le rendu serveur.`,
+          );
+        }
       })();
+
 
 
   // Kill the pool as soon as the caller aborts — this rejects every in-flight
@@ -641,7 +662,13 @@ export async function processVideo(opts: {
 
 
     // ── transcription (with cache) ────────────────────────────────────────────
+    onProgress({
+      phase: `Transcription du segment ${i + 1}/${totalSegments}…`,
+      segmentIndex: i,
+      totalSegments,
+    });
     onMetric?.({ index: i, status: "transcribing" });
+
     let cues: Cue[] = [];
     try {
       const cachedCues = await getCachedCues(fingerprint, seg.start, seg.end);
@@ -704,7 +731,13 @@ export async function processVideo(opts: {
       cueCount: cues.length,
     });
 
+    onProgress({
+      phase: `Encodage du segment ${i + 1}/${totalSegments}…`,
+      segmentIndex: i,
+      totalSegments,
+    });
     // ── render (dispatched to any free worker) ────────────────────────────────
+
     try {
       // Pause promo : image figée à l'instant choisi, voix off par-dessus.
       const promo: PromoPause | null =
@@ -799,12 +832,32 @@ export async function processVideo(opts: {
 
   try {
     onProgress({
-      phase: `Rendu parallèle sur ${desiredPoolSize} worker${desiredPoolSize > 1 ? "s" : ""}`,
+      phase: `Découpage séquentiel de ${totalSegments} segment${totalSegments > 1 ? "s" : ""}`,
       totalSegments,
     });
-    await Promise.all(segments.map((_, i) => runOne(i)));
+    // Un segment à la fois : ffmpeg.wasm garde tout en mémoire, le parallélisme
+    // faisait crasher l'onglet sur les grosses vidéos.
+    for (let i = 0; i < totalSegments; i++) {
+      if (signal?.aborted) break;
+      onProgress({
+        phase: `Découpage du segment ${i + 1}/${totalSegments}…`,
+        segmentIndex: i,
+        totalSegments,
+        progress: i / totalSegments,
+      });
+      try {
+        await runOne(i);
+      } catch (e) {
+        // Un segment en échec ne doit jamais interrompre les suivants.
+        if (e instanceof AbortedError || signal?.aborted) break;
+        const msg = (e as Error).message || "erreur inconnue";
+        onLog?.(`Segment ${i + 1} en échec : ${msg}`);
+        onMetric?.({ index: i, status: "error", lastError: msg });
+      }
+    }
     throwIfAborted(signal);
     return shorts.sort((a, b) => a.index - b.index);
+
   } finally {
     if (signal) signal.removeEventListener("abort", onAbort);
     pool.terminate();
