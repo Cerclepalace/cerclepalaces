@@ -1752,7 +1752,11 @@ function Dashboard({
           <tbody>
             {rows.map((r) => {
               const manualCount = r.manualAttempts ?? 0;
-              const canRetry = r.status === "error" && manualCount < maxManualRetries && !busy;
+              // La reprise manuelle utilise ffmpeg.wasm local : on la masque en
+              // rendu serveur (le pipeline retente déjà 3 fois côté serveur).
+              const canRetry =
+                r.status === "error" && manualCount < maxManualRetries && !busy && !serverRender;
+
               const retryExhausted = r.status === "error" && manualCount >= maxManualRetries;
               return (
                 <tr key={r.index} className="border-t border-white/5" title={r.lastError ?? undefined}>
