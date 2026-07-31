@@ -1656,12 +1656,31 @@ function Home() {
                     </span>
                     <button
                       onClick={() => void download(s)}
-                      className="rounded-md px-3 py-1 font-semibold uppercase tracking-wider"
+                      disabled={exportState[s.index]?.status === "working"}
+                      className="rounded-md px-3 py-1 font-semibold uppercase tracking-wider disabled:opacity-60"
                       style={{ backgroundColor: "#39FF14", color: "#050505" }}
                     >
-                      MP4
+                      {exportState[s.index]?.status === "working" ? "Export…" : "MP4"}
                     </button>
                   </div>
+                  {exportState[s.index] && (
+                    <div
+                      className="px-3 pb-3 text-[11px] leading-snug"
+                      role="status"
+                      aria-live="polite"
+                      style={{
+                        color:
+                          exportState[s.index]!.status === "error"
+                            ? "#FF6B6B"
+                            : exportState[s.index]!.status === "done"
+                              ? "#39FF14"
+                              : "rgba(255,255,255,0.6)",
+                      }}
+                    >
+                      {exportState[s.index]!.message}
+                    </div>
+                  )}
+
                 </div>
               ))}
             </div>
