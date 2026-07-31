@@ -55,6 +55,7 @@ export type PoolInit = {
   inputBytes: ArrayBuffer; // will be structured-cloned per worker
   fonts: Array<{ file: string; bytes: ArrayBuffer }>;
   voiceBytes?: ArrayBuffer | null;
+  logoBytes?: ArrayBuffer | null;
   onLog?: (workerIdx: number, msg: string) => void;
 };
 
@@ -78,6 +79,7 @@ export class FFmpegPool {
           inputBytes: opts.inputBytes,
           fonts: opts.fonts,
           voiceBytes: opts.voiceBytes ?? null,
+          logoBytes: opts.logoBytes ?? null,
         }),
       ),
     );

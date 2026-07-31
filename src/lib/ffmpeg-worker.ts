@@ -15,6 +15,7 @@ type InitMsg = {
   inputBytes: ArrayBuffer;
   fonts: Array<{ file: string; bytes: ArrayBuffer }>;
   voiceBytes?: ArrayBuffer | null;
+  logoBytes?: ArrayBuffer | null;
 };
 
 type ExtractMsg = {
@@ -39,6 +40,7 @@ type RenderMsg = {
   preset?: string;
   hasPromo?: boolean;
   hasVoice?: boolean;
+  hasLogo?: boolean;
 };
 
 
@@ -94,6 +96,9 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
       if (msg.voiceBytes) {
         await inst.writeFile("promo_vo.mp3", new Uint8Array(msg.voiceBytes));
       }
+      if (msg.logoBytes) {
+        await inst.writeFile("pause_logo.png", new Uint8Array(msg.logoBytes));
+      }
       post({ type: "ok", id: msg.id });
       return;
     }
@@ -127,6 +132,7 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
           "-i", "input.mp4",
           "-t", msg.duration.toFixed(3),
           ...(msg.hasPromo && msg.hasVoice ? ["-i", "promo_vo.mp3"] : []),
+          ...(msg.hasPromo && msg.hasLogo ? ["-i", "pause_logo.png"] : []),
           "-filter_complex", msg.filter,
           "-map", "[vout]",
           ...(msg.hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),

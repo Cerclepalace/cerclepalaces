@@ -10,6 +10,7 @@ import {
   sourceFingerprint,
 } from "./segment-cache";
 import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
+import pauseLogoAsset from "@/assets/promo-pause-logo.png.asset.json";
 export { clearSegmentCache } from "./segment-cache";
 export { suggestedPoolSize } from "./ffmpeg-pool";
 
@@ -357,6 +358,8 @@ export type PromoPause = {
   durationSec: number;
   /** une voix off est chargée dans le worker (promo_vo.mp3) */
   hasVoice: boolean;
+  /** un logo pause est chargé dans le worker (pause_logo.png) */
+  hasLogo?: boolean;
 };
 
 function buildVideoFilter(
@@ -402,7 +405,15 @@ function buildVideoFilter(
         `setpts=PTS-STARTPTS,eq=brightness=-0.06:saturation=0.95[fz]`,
     );
     base.push(`[p3]trim=start=${P.toFixed(3)},setpts=PTS-STARTPTS[s3]`);
-    base.push(`[s1][fz][s3]concat=n=3:v=1:a=0,fps=${profile.fps}[vout]`);
+    let fzLabel = "[fz]";
+    if (promo.hasLogo) {
+      const logoIdx = promo.hasVoice ? 2 : 1;
+      const lw = Math.round(profile.width * 0.22);
+      base.push(`[${logoIdx}:v]scale=${lw}:-1,format=rgba,colorchannelmixer=aa=0.92[plogo]`);
+      base.push(`[fz][plogo]overlay=(W-w)/2:(H-h)/2[fzl]`);
+      fzLabel = "[fzl]";
+    }
+    base.push(`[s1]${fzLabel}[s3]concat=n=3:v=1:a=0,fps=${profile.fps}[vout]`);
 
     // ── audio : silence pendant la pause, voix off par-dessus ────────────────
     base.push(
@@ -479,6 +490,11 @@ export async function processVideo(opts: {
   const zoomPunch = opts.zoomPunch ?? false;
   const promoCfg = opts.promoPause?.enabled ? opts.promoPause : null;
   const voiceBytes = promoCfg?.voice ? await promoCfg.voice.arrayBuffer() : null;
+  const logoBytes = promoCfg
+    ? await fetch(pauseLogoAsset.url)
+        .then((r) => (r.ok ? r.arrayBuffer() : null))
+        .catch(() => null)
+    : null;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
@@ -527,6 +543,7 @@ export async function processVideo(opts: {
     size: desiredPoolSize,
     inputBytes,
     voiceBytes,
+    logoBytes,
     fonts: fontsToLoad,
     onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
   });
@@ -619,6 +636,7 @@ export async function processVideo(opts: {
               atSec: promoCfg.atSec,
               durationSec: promoCfg.durationSec,
               hasVoice: !!voiceBytes,
+              hasLogo: !!logoBytes,
             }
           : null;
       const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch, promo);
@@ -643,6 +661,7 @@ export async function processVideo(opts: {
               preset: profile.preset,
               hasPromo: !!promo,
               hasVoice: !!promo?.hasVoice,
+              hasLogo: !!promo?.hasLogo,
             }),
 
           );
