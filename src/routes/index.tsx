@@ -142,10 +142,13 @@ function Home() {
 
   const handleFile = async (f: File | null) => {
     if (!f) return;
-    if (!f.type.startsWith("video/")) {
+    const looksVideo =
+      f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(f.name);
+    if (!looksVideo) {
       setError("Fichier vidéo requis (mp4, mov, webm…)");
       return;
     }
+
     if (f.size > 500 * 1024 * 1024) {
       setError("Vidéo trop lourde (> 500 Mo). Compresse-la d'abord.");
       return;
