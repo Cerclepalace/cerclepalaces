@@ -121,7 +121,7 @@ const upload = multer({
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 Go
 });
 
-function runFfmpeg(args, cwd, req) {
+function runFfmpeg(args, cwd, req, timeoutMs = FFMPEG_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderr = "";
@@ -146,7 +146,7 @@ function runFfmpeg(args, cwd, req) {
     const timeout = setTimeout(() => {
       timedOut = true;
       proc.kill("SIGKILL");
-    }, FFMPEG_TIMEOUT_MS);
+    }, timeoutMs);
     timeout.unref();
     req?.once?.("aborted", onClose);
     proc.stderr.on("data", (d) => {
@@ -222,7 +222,55 @@ function ensureVideoOutput(filter, width, height, fps) {
   );
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, activeRenders, queued: renderQueue.length, maxConcurrency: MAX_RENDER_CONCURRENCY }),
+);
+
+// ── auto-test : simule un ffmpeg figé et vérifie le coupe-circuit ───────────
+// Lance un encodage volontairement infini avec un timeout court, puis mesure
+// que le processus est bien tué et que le créneau de la file est relâché.
+app.post("/diagnostics/stall", requireAuth, async (req, res) => {
+  const timeoutMs = Math.max(3000, Math.min(30_000, Number(req.body?.timeoutMs) || 8000));
+  const startedAt = Date.now();
+  let slot = false;
+  let killed = false;
+  let detail = "";
+  try {
+    await acquireRenderSlot(req);
+    slot = true;
+    await runFfmpeg(
+      [
+        "-re",
+        "-f", "lavfi",
+        "-i", "testsrc=size=64x64:rate=5",
+        "-t", "3600",
+        "-f", "null", "-",
+      ],
+      WORK_DIR,
+      req,
+      timeoutMs,
+    );
+  } catch (e) {
+    detail = String(e?.message || e);
+    killed = /timeout/i.test(detail);
+  } finally {
+    if (slot) releaseRenderSlot();
+  }
+  const elapsedMs = Date.now() - startedAt;
+  res.json({
+    killed,
+    detail,
+    timeoutMs,
+    elapsedMs,
+    activeRenders,
+    queued: renderQueue.length,
+    maxConcurrency: MAX_RENDER_CONCURRENCY,
+    // Le coupe-circuit est validé si ffmpeg a été tué au bon moment ET que la
+    // file est revenue à zéro rendu actif.
+    slotReleased: activeRenders === 0,
+    ok: killed && activeRenders === 0 && elapsedMs < timeoutMs + 5000,
+  });
+});
 
 // Ouvre une session et reçoit la vidéo source + assets.
 app.post(
