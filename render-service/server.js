@@ -1,0 +1,239 @@
+// NeonCut render service — ffmpeg natif côté serveur.
+//
+// Le navigateur (surtout mobile) n'encode plus rien : il ouvre une "session"
+// en uploadant la vidéo source (+ voix off, logo, polices), puis demande
+// segment par segment une extraction audio ou un rendu MP4.
+//
+// Le protocole reprend exactement celui du Web Worker ffmpeg.wasm côté client,
+// donc le graphe de filtres (crop 9:16, sous-titres ASS karaoké, pause promo,
+// logo, voix off) est identique — seul le moteur change.
+
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+const PORT = Number(process.env.PORT || 8080);
+const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
+const SECRET = process.env.RENDER_SERVICE_SECRET || "";
+const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
+
+if (!SECRET) {
+  console.warn("[neoncut] RENDER_SERVICE_SECRET manquant — le service refusera toutes les requêtes.");
+}
+
+await fs.mkdir(WORK_DIR, { recursive: true });
+
+const app = express();
+app.use(
+  cors({
+    origin: true,
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86400,
+  }),
+);
+app.use(express.json({ limit: "8mb" }));
+
+// ── auth : jeton HMAC court terme émis par le backend Lovable ───────────────
+function verifyToken(token) {
+  if (!SECRET || !token) return false;
+  const [expRaw, sig] = String(token).split(".");
+  if (!expRaw || !sig) return false;
+  const exp = Number(expRaw);
+  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+  const expected = crypto.createHmac("sha256", SECRET).update(expRaw).digest("hex");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!verifyToken(token)) return res.status(401).json({ error: "unauthorized" });
+  next();
+}
+
+// ── sessions ────────────────────────────────────────────────────────────────
+const sessions = new Map(); // id -> { dir, createdAt }
+
+function sessionDir(id) {
+  return path.join(WORK_DIR, id);
+}
+
+async function touchSession(id) {
+  const s = sessions.get(id);
+  if (!s) return null;
+  s.createdAt = Date.now();
+  return s;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of sessions) {
+    if (now - s.createdAt > SESSION_TTL_MS) {
+      sessions.delete(id);
+      fs.rm(s.dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}, 60_000).unref();
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, req.__dir),
+    filename: (req, file, cb) => {
+      if (file.fieldname === "input") return cb(null, "input.mp4");
+      if (file.fieldname === "voice") return cb(null, "promo_vo.mp3");
+      if (file.fieldname === "logo") return cb(null, "pause_logo.png");
+      // polices
+      const safe = path.basename(file.originalname).replace(/[^\w.\-]/g, "_");
+      cb(null, path.join("fonts", safe));
+    },
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 Go
+});
+
+function runFfmpeg(args, cwd) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffmpeg", args, { cwd });
+    let stderr = "";
+    proc.stderr.on("data", (d) => {
+      stderr += d.toString();
+      if (stderr.length > 40_000) stderr = stderr.slice(-20_000);
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-2000)}`));
+    });
+  });
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Ouvre une session et reçoit la vidéo source + assets.
+app.post(
+  "/session",
+  requireAuth,
+  async (req, res, next) => {
+    const id = crypto.randomUUID();
+    const dir = sessionDir(id);
+    await fs.mkdir(path.join(dir, "fonts"), { recursive: true });
+    req.__dir = dir;
+    req.__id = id;
+    next();
+  },
+  upload.any(),
+  async (req, res) => {
+    sessions.set(req.__id, { dir: req.__dir, createdAt: Date.now() });
+    res.json({ sessionId: req.__id });
+  },
+);
+
+// Extraction audio d'un segment → base64 (pour la transcription Gemini).
+app.post("/session/:id/extract", requireAuth, async (req, res) => {
+  const s = await touchSession(req.params.id);
+  if (!s) return res.status(404).json({ error: "session inconnue" });
+  const { index = 0, start = 0, duration = 0 } = req.body || {};
+  const out = `audio_${index}.webm`;
+  try {
+    await runFfmpeg(
+      [
+        "-ss", Number(start).toFixed(3),
+        "-i", "input.mp4",
+        "-t", Number(duration).toFixed(3),
+        "-vn", "-ac", "1", "-ar", "16000",
+        "-c:a", "libopus", "-b:a", "16k",
+        "-y", out,
+      ],
+      s.dir,
+    );
+    const buf = await fs.readFile(path.join(s.dir, out));
+    await fs.rm(path.join(s.dir, out), { force: true });
+    res.json({ audioBase64: buf.toString("base64") });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// Rendu d'un segment → MP4 binaire.
+app.post("/session/:id/render", requireAuth, async (req, res) => {
+  const s = await touchSession(req.params.id);
+  if (!s) return res.status(404).json({ error: "session inconnue" });
+  const {
+    index = 0,
+    start = 0,
+    duration = 0,
+    ass = "",
+    hasCues = false,
+    filter = "",
+    crf = "23",
+    audioBitrate = "128k",
+    preset = "veryfast",
+    hasPromo = false,
+    hasVoice = false,
+    hasLogo = false,
+  } = req.body || {};
+
+  const assName = `subs_${index}.ass`;
+  const outName = `out_${index}.mp4`;
+  // Le client cible /fonts (FS virtuel du worker) ; ici les polices sont dans
+  // le dossier de session.
+  const localFilter = String(filter).replace(/fontsdir=\/fonts/g, "fontsdir=fonts");
+
+  try {
+    if (hasCues) await fs.writeFile(path.join(s.dir, assName), ass, "utf8");
+    await runFfmpeg(
+      [
+        "-ss", Number(start).toFixed(3),
+        "-i", "input.mp4",
+        "-t", Number(duration).toFixed(3),
+        ...(hasPromo && hasVoice ? ["-i", "promo_vo.mp3"] : []),
+        ...(hasPromo && hasLogo ? ["-i", "pause_logo.png"] : []),
+        "-filter_complex", localFilter,
+        "-map", "[vout]",
+        ...(hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
+        "-c:v", "libx264",
+        "-preset", String(preset),
+        "-crf", String(crf),
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", String(audioBitrate),
+        "-movflags", "+faststart",
+        "-y", outName,
+      ],
+      s.dir,
+    );
+    const full = path.join(s.dir, outName);
+    const stat = await fs.stat(full);
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Length", String(stat.size));
+    const stream = createReadStream(full);
+    stream.pipe(res);
+    stream.on("close", () => {
+      fs.rm(full, { force: true }).catch(() => {});
+      fs.rm(path.join(s.dir, assName), { force: true }).catch(() => {});
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.delete("/session/:id", requireAuth, async (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (s) {
+    sessions.delete(req.params.id);
+    await fs.rm(s.dir, { recursive: true, force: true }).catch(() => {});
+  }
+  res.json({ ok: true });
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`[neoncut] render service on :${PORT}`);
+});
