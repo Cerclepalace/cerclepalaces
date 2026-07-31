@@ -333,6 +333,8 @@ function Home() {
           smartCount,
           throttle: { maxConcurrent, rpm },
           poolSize,
+          remote: serverRender,
+
           wordByWord,
           brandedFrame,
           zoomPunch,
@@ -406,6 +408,8 @@ function Home() {
       maxConcurrent,
       rpm,
       poolSize,
+      serverRender,
+
       wordByWord,
       brandedFrame,
       zoomPunch,
