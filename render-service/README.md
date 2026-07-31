@@ -82,13 +82,37 @@ Dans Lovable, ajoute deux secrets (l'agent te les demandera) :
 
 Puis publie l'app. C'est tout : sur mobile, le rendu part automatiquement sur le serveur.
 
-## Alternative : Railway (sans ligne de commande)
-1. https://railway.app → **Login with GitHub**.
-2. **New Project** → **Deploy from GitHub repo** → choisis le repo du projet.
-3. Dans **Settings → Root Directory**, mets `render-service`.
-4. Dans **Variables**, ajoute `RENDER_SERVICE_SECRET` = ta chaîne aléatoire.
-5. **Settings → Networking → Generate Domain** : tu obtiens l'URL à coller dans
-   `RENDER_SERVICE_URL`.
+## Alternative : Railway (100 % depuis un téléphone, sans terminal)
+
+1. **Envoyer le code sur GitHub** — dans Lovable : bouton **GitHub** en haut à
+   droite → **Connect to GitHub** → autoriser → **Create repository**.
+2. **Créer le compte Railway** — https://railway.com → **Login with GitHub**
+   (même compte qu'à l'étape 1) → autoriser.
+3. **Ajouter une carte** — avatar en haut à droite → **Account settings** →
+   **Billing** → **Add payment method**. Sans carte, Railway limite le projet à
+   500 Mo de RAM, insuffisant pour ffmpeg.
+4. **Créer le service** — bouton **New Project** → **Deploy from GitHub repo** →
+   **Configure GitHub App** si le repo n'apparaît pas → choisir le repo du projet.
+5. **Pointer sur le bon dossier** — cliquer sur la carte du service → onglet
+   **Settings** → section **Source** → **Root Directory** = `render-service`.
+   Railway détecte alors le `Dockerfile` et le `railway.json` tout seuls.
+6. **Ajouter le mot de passe partagé** — onglet **Variables** → **New Variable** :
+   - nom : `RENDER_SERVICE_SECRET`
+   - valeur : une longue chaîne aléatoire (≥ 32 caractères), à conserver.
+   Ne pas définir `PORT` : Railway l'injecte, le serveur le lit déjà.
+7. **Déployer** — onglet **Deployments** → **Deploy**. Attendre le statut
+   **Active** (3 à 6 min au premier build, ffmpeg est installé dans l'image).
+8. **Obtenir l'URL** — **Settings** → **Networking** → **Generate Domain** →
+   port `8080`. On obtient `https://<nom>.up.railway.app`.
+9. **Vérifier** — ouvrir `https://<nom>.up.railway.app/health` dans le navigateur :
+   la page doit afficher `{"ok":true}`.
+10. **Brancher l'app** — dans Lovable, renseigner les deux secrets :
+    - `RENDER_SERVICE_URL` = l'URL de l'étape 8, **sans slash final**
+    - `RENDER_SERVICE_SECRET` = **exactement** la chaîne de l'étape 6
+    Puis publier l'app.
+
+Chaque nouveau push sur GitHub redéploie le service automatiquement.
+
 
 ## Coût indicatif
 Machine `performance-2x` (4 Go) en veille automatique : environ 5 à 15 $/mois selon
