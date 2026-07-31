@@ -442,13 +442,34 @@ function Home() {
     ],
   );
 
-  const download = (s: Short) => {
+  const download = async (s: Short) => {
+    const name = `short_${String(s.index + 1).padStart(2, "0")}.mp4`;
+    // iOS/Safari ignore souvent l'attribut download sur un blob: URL.
+    // On tente d'abord le partage natif (Enregistrer dans Photos / Fichiers).
+    try {
+      const f = new File([s.blob], name, { type: "video/mp4" });
+      const nav = navigator as Navigator & {
+        canShare?: (d: { files: File[] }) => boolean;
+        share?: (d: { files: File[]; title?: string }) => Promise<void>;
+      };
+      if (nav.share && nav.canShare?.({ files: [f] })) {
+        await nav.share({ files: [f], title: name });
+        return;
+      }
+    } catch {
+      /* partage annulé ou indisponible : on retombe sur le téléchargement */
+    }
+
+    const url = URL.createObjectURL(s.blob);
     const a = document.createElement("a");
-    a.href = s.url;
-    a.download = `short_${String(s.index + 1).padStart(2, "0")}.mp4`;
+    a.href = url;
+    a.download = name;
+    a.rel = "noopener";
+    a.target = "_blank";
     document.body.appendChild(a);
     a.click();
     a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const MAX_MANUAL_RETRIES = 3;
