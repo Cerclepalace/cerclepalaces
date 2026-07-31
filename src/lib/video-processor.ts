@@ -662,7 +662,13 @@ export async function processVideo(opts: {
 
 
     // ── transcription (with cache) ────────────────────────────────────────────
+    onProgress({
+      phase: `Transcription du segment ${i + 1}/${totalSegments}…`,
+      segmentIndex: i,
+      totalSegments,
+    });
     onMetric?.({ index: i, status: "transcribing" });
+
     let cues: Cue[] = [];
     try {
       const cachedCues = await getCachedCues(fingerprint, seg.start, seg.end);
