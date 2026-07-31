@@ -465,12 +465,20 @@ export async function processVideo(opts: {
   wordByWord?: boolean;
   brandedFrame?: boolean;
   zoomPunch?: boolean;
+  promoPause?: {
+    enabled: boolean;
+    atSec: number;
+    durationSec: number;
+    voice?: Blob | null;
+  } | null;
 }): Promise<Short[]> {
   const { file, segmentSec, onProgress, onLog, onShort, onMetric, style, signal } = opts;
   const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
+  const promoCfg = opts.promoPause?.enabled ? opts.promoPause : null;
+  const voiceBytes = promoCfg?.voice ? await promoCfg.voice.arrayBuffer() : null;
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   const desiredPoolSize = Math.max(1, opts.poolSize ?? suggestedPoolSize());
@@ -518,6 +526,7 @@ export async function processVideo(opts: {
   const pool = await FFmpegPool.create({
     size: desiredPoolSize,
     inputBytes,
+    voiceBytes,
     fonts: fontsToLoad,
     onLog: (idx, msg) => onLog?.(`[w${idx}] ${msg}`),
   });
@@ -603,7 +612,16 @@ export async function processVideo(opts: {
 
     // ── render (dispatched to any free worker) ────────────────────────────────
     try {
-      const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch);
+      // Pause promo : image figée à l'instant choisi, voix off par-dessus.
+      const promo: PromoPause | null =
+        promoCfg && dur > promoCfg.atSec + 1
+          ? {
+              atSec: promoCfg.atSec,
+              durationSec: promoCfg.durationSec,
+              hasVoice: !!voiceBytes,
+            }
+          : null;
+      const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch, promo);
       const ass = buildAssFile(cues, dur, profile, style, wordByWord);
 
       const renderT0 = performance.now();
@@ -623,6 +641,8 @@ export async function processVideo(opts: {
               crf: profile.crf,
               audioBitrate: profile.audioBitrate,
               preset: profile.preset,
+              hasPromo: !!promo,
+              hasVoice: !!promo?.hasVoice,
             }),
 
           );

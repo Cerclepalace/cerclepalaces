@@ -54,6 +54,7 @@ export type PoolInit = {
   size: number;
   inputBytes: ArrayBuffer; // will be structured-cloned per worker
   fonts: Array<{ file: string; bytes: ArrayBuffer }>;
+  voiceBytes?: ArrayBuffer | null;
   onLog?: (workerIdx: number, msg: string) => void;
 };
 
@@ -72,7 +73,12 @@ export class FFmpegPool {
     // (structured clone happens under the hood).
     await Promise.all(
       pool.workers.map((w) =>
-        w.send({ type: "init", inputBytes: opts.inputBytes, fonts: opts.fonts }),
+        w.send({
+          type: "init",
+          inputBytes: opts.inputBytes,
+          fonts: opts.fonts,
+          voiceBytes: opts.voiceBytes ?? null,
+        }),
       ),
     );
     return pool;
