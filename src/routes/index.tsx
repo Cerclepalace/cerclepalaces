@@ -108,6 +108,14 @@ function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // ── Détection multi-signal des moments forts ──────────────────────────────
+  const [moments, setMoments] = useState<ViralMoment[]>([]);
+  const [selectedMoments, setSelectedMoments] = useState<Set<string>>(new Set());
+  const [momentCount, setMomentCount] = useState(5);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStatus, setAnalyzeStatus] = useState("");
+
+
 
   // Live clock while busy so throughput/ETA update in real time
   useEffect(() => {
