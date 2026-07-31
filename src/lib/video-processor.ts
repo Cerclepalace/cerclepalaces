@@ -319,15 +319,12 @@ export function computeSegments(
 
   const from = Math.max(0, Math.min(durationSec, trim.start));
   const to = Math.max(from, Math.min(durationSec, trim.end || durationSec));
-  const usable = to - from;
-  const total = Math.max(1, Math.floor(usable / segmentSec));
   const out: SegmentRange[] = [];
-  for (let i = 0; i < total; i++) {
-    const start = from + i * segmentSec;
-    const end = Math.min(to, start + segmentSec);
-    if (end - start >= 10) out.push({ start, end });
+  for (let start = from; to - start >= 10; start += maxLen) {
+    out.push({ start, end: Math.min(to, start + maxLen) });
   }
   return out;
+
 }
 
 export type SegmentMetric = {
