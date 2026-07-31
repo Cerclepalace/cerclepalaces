@@ -228,25 +228,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       );
       continue;
     }
+    // ── Karaoké mot par mot ────────────────────────────────────────────────
+    // La ligne complète reste affichée, seul le mot en cours est mis en
+    // surbrillance (couleur accent + agrandi), façon TikTok.
     const words = c.text.split(/\s+/).filter(Boolean);
     if (words.length === 0) continue;
     const totalDur = Math.max(0.2, c.end - c.start);
-    // Pop-in style: 1-2 words at a time, each held for its share of the cue.
-    const groupSize = words.length >= 6 ? 2 : 1;
-    const groups: string[][] = [];
-    for (let i = 0; i < words.length; i += groupSize) groups.push(words.slice(i, i + groupSize));
-    const per = totalDur / groups.length;
-    for (let gi = 0; gi < groups.length; gi++) {
-      const start = c.start + gi * per;
-      const end = gi === groups.length - 1 ? c.end : start + per;
-      const rendered = groups[gi]
-        .map((w) => (isPowerWord(w) ? `{\\c${accent}}${escapeAss(w)}{\\c${primaryInline}}` : escapeAss(w)))
-        .join(" ");
-      // \fad(80,60) = subtle pop-in/out
-      lines.push(
-        `Dialogue: 0,${fmtAssTime(start, durationSec)},${fmtAssTime(end, durationSec)},Neon,,0,0,0,,{\\blur1.2\\fad(80,60)}${rendered}`,
-      );
+    const LINE_MAX = 4;
+    const lines2: string[][] = [];
+    for (let i = 0; i < words.length; i += LINE_MAX) lines2.push(words.slice(i, i + LINE_MAX));
+    // Répartition du temps proportionnelle au nombre de caractères.
+    const totalChars = words.reduce((n, w) => n + Math.max(2, w.length), 0);
+    let cursor = c.start;
+    for (const group of lines2) {
+      for (let wi = 0; wi < group.length; wi++) {
+        const w = group[wi];
+        const share = (Math.max(2, w.length) / totalChars) * totalDur;
+        const start = cursor;
+        const end = Math.min(c.end, start + Math.max(0.12, share));
+        cursor = end;
+        const rendered = group
+          .map((word, k) => {
+            const safe = escapeAss(word);
+            if (k === wi) {
+              // mot actif : accent + léger scale-up
+              return `{\\c${accent}\\fscx112\\fscy112}${safe}{\\c${primaryInline}\\fscx100\\fscy100}`;
+            }
+            if (isPowerWord(word)) return `{\\alpha&H40&}${safe}{\\alpha&H00&}`;
+            return `{\\alpha&H50&}${safe}{\\alpha&H00&}`;
+          })
+          .join(" ");
+        lines.push(
+          `Dialogue: 0,${fmtAssTime(start, durationSec)},${fmtAssTime(end, durationSec)},Neon,,0,0,0,,{\\blur1.2}${rendered}`,
+        );
+      }
     }
+
   }
   return header + lines.join("\n") + "\n";
 }

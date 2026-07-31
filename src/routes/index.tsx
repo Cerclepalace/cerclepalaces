@@ -14,6 +14,12 @@ import {
   type SegmentRange,
   type SegmentMetric,
 } from "@/lib/video-processor";
+import {
+  analyzeViralMoments,
+  MIN_SHORT_SEC,
+  MAX_SHORT_SEC,
+  type ViralMoment,
+} from "@/lib/viral-detect";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
@@ -101,6 +107,14 @@ function Home() {
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // ── Détection multi-signal des moments forts ──────────────────────────────
+  const [moments, setMoments] = useState<ViralMoment[]>([]);
+  const [selectedMoments, setSelectedMoments] = useState<Set<string>>(new Set());
+  const [momentCount, setMomentCount] = useState(5);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStatus, setAnalyzeStatus] = useState("");
+
 
 
   // Live clock while busy so throughput/ETA update in real time
@@ -218,10 +232,56 @@ function Home() {
       .filter((v): v is SegmentRange => v !== null);
   };
 
+  const chosenMoments = moments.filter((m) => selectedMoments.has(m.id));
+
+  const analyze = useCallback(async () => {
+    if (!file || analyzing) return;
+    setAnalyzing(true);
+    setError(null);
+    setAnalyzeStatus("Démarrage de l'analyse…");
+    try {
+      const res = await analyzeViralMoments({
+        file,
+        trim: { start: trimStart, end: trimEnd || duration },
+        count: momentCount,
+        throttle: { maxConcurrent, rpm },
+        onProgress: (p) => setAnalyzeStatus(p),
+        onLog: (m) => console.debug("[viral]", m),
+      });
+      setMoments(res);
+      setSelectedMoments(new Set(res.map((m) => m.id)));
+      setAnalyzeStatus(
+        res.length ? `${res.length} moment${res.length > 1 ? "s" : ""} détecté${res.length > 1 ? "s" : ""}` : "Aucun moment détecté",
+      );
+    } catch (e) {
+      setError(`Analyse échouée: ${(e as Error).message}`);
+      setAnalyzeStatus("");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, maxConcurrent, rpm]);
+
+  const updateMoment = (id: string, patch: { start?: number; end?: number }) => {
+    setMoments((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const start = Math.max(0, patch.start ?? m.start);
+        const rawEnd = patch.end ?? m.end;
+        const end = Math.min(
+          duration || rawEnd,
+          Math.max(start + MIN_SHORT_SEC, Math.min(start + MAX_SHORT_SEC, rawEnd)),
+        );
+        return { ...m, start, end };
+      }),
+    );
+  };
+
   const usableDur = Math.max(0, trimEnd - trimStart);
-  const estimatedShorts = manualMode
-    ? parseManual().length
-    : Math.max(1, Math.floor(usableDur / segmentSec));
+  const estimatedShorts = chosenMoments.length
+    ? chosenMoments.length
+    : manualMode
+      ? parseManual().length
+      : Math.max(1, Math.floor(usableDur / segmentSec));
 
   const run = useCallback(
     async (previewOnly = false) => {
@@ -237,7 +297,12 @@ function Home() {
       setNowMs(Date.now());
       setStatus(previewOnly ? "Aperçu…" : "Démarrage…");
       try {
-        let custom = manualMode ? parseManual() : undefined;
+        let custom: SegmentRange[] | undefined = chosenMoments.length
+          ? chosenMoments.map((m) => ({ start: m.start, end: m.end }))
+          : manualMode
+            ? parseManual()
+            : undefined;
+
         if (previewOnly) {
           const base = custom && custom.length > 0 ? custom[0].start : trimStart;
           const end = Math.min(duration || base + 8, base + 8);
@@ -320,6 +385,9 @@ function Home() {
       manualText,
       smart,
       smartCount,
+      moments,
+      selectedMoments,
+
 
       maxConcurrent,
       rpm,
@@ -845,6 +913,150 @@ function Home() {
                 </div>
               </div>
             )}
+
+            {/* ── DÉTECTION VIRALE MULTI-SIGNAL ─────────────────────────── */}
+            <div className="mb-5 rounded-xl border border-[#FFE500]/30 bg-[#FFE500]/[0.04] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div
+                    className="text-lg"
+                    style={{ fontFamily: "Bebas Neue, Impact, sans-serif", color: "#FFE500", letterSpacing: "0.06em" }}
+                  >
+                    MOMENTS VIRAUX ✦
+                  </div>
+                  <p className="mt-1 text-xs text-white/60">
+                    Score combiné : hooks du transcript (IA) + énergie audio locale + densité de mots
+                    émotionnels. Chaque clip démarre pile sur la phrase choc, {MIN_SHORT_SEC}–{MAX_SHORT_SEC}s.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={3}
+                    max={5}
+                    value={momentCount}
+                    onChange={(e) => setMomentCount(Math.max(3, Math.min(5, Number(e.target.value) || 3)))}
+                    disabled={busy || analyzing}
+                    className="w-16 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
+                    aria-label="Nombre de moments"
+                  />
+                  <Button
+                    type="button"
+                    onClick={analyze}
+                    disabled={busy || analyzing || !file}
+                    className="h-auto py-2"
+                    style={{ backgroundColor: "#FFE500", color: "#050505" }}
+                  >
+                    {analyzing ? "Analyse…" : "Analyser"}
+                  </Button>
+                </div>
+              </div>
+
+              {analyzeStatus && (
+                <div className="mt-3 text-xs text-white/60">{analyzeStatus}</div>
+              )}
+
+              {moments.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {moments.map((m) => {
+                    const on = selectedMoments.has(m.id);
+                    return (
+                      <div
+                        key={m.id}
+                        className={`rounded-lg border p-3 transition ${
+                          on ? "border-[#FFE500]/60 bg-black/40" : "border-white/10 bg-black/20 opacity-70"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={busy}
+                            onChange={() =>
+                              setSelectedMoments((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(m.id)) next.delete(m.id);
+                                else next.add(m.id);
+                                return next;
+                              })
+                            }
+                            className="mt-1 h-4 w-4 accent-[#FFE500]"
+                            aria-label={`Sélectionner le moment ${fmtTime(m.start)}`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className="rounded-md px-2 py-0.5 text-sm font-bold"
+                                style={{ backgroundColor: "#FFE500", color: "#050505" }}
+                              >
+                                {m.score}
+                              </span>
+                              <span className="text-xs text-white/50">
+                                hook {m.hookScore} · audio {m.audioScore} · émotion {m.emotionScore}
+                              </span>
+                              {m.reason && (
+                                <span className="text-xs text-[#39FF14]/80">{m.reason}</span>
+                              )}
+                            </div>
+                            {m.hookText && (
+                              <p className="mt-2 text-sm text-white">« {m.hookText} »</p>
+                            )}
+                            {m.transcript && (
+                              <p className="mt-1 line-clamp-2 text-xs text-white/45">{m.transcript}</p>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/60">
+                              <label>Début</label>
+                              <input
+                                type="number"
+                                step={0.5}
+                                min={0}
+                                value={Number(m.start.toFixed(1))}
+                                disabled={busy}
+                                onChange={(e) => updateMoment(m.id, { start: Number(e.target.value) })}
+                                className="w-20 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
+                              />
+                              <label>Fin</label>
+                              <input
+                                type="number"
+                                step={0.5}
+                                min={0}
+                                value={Number(m.end.toFixed(1))}
+                                disabled={busy}
+                                onChange={(e) => updateMoment(m.id, { end: Number(e.target.value) })}
+                                className="w-20 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
+                              />
+                              <span className="text-white/40">
+                                {fmtTime(m.start)} → {fmtTime(m.end)} ({(m.end - m.start).toFixed(1)}s)
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-between text-xs text-white/50">
+                    <span>
+                      {chosenMoments.length} moment{chosenMoments.length > 1 ? "s" : ""} sélectionné
+                      {chosenMoments.length > 1 ? "s" : ""} — ils remplacent la découpe auto.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoments([]);
+                        setSelectedMoments(new Set());
+                        setAnalyzeStatus("");
+                      }}
+                      disabled={busy}
+                      className="underline hover:text-white"
+                    >
+                      Effacer
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+
 
 
             {!manualMode ? (
