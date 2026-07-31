@@ -1265,44 +1265,19 @@ function Home() {
             </div>
 
             <div className="mb-4">
-              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Vitesse de rendu</div>
-              <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-1">
-                <Button
-                  type="button"
-                  variant={renderMode === "fast" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("fast")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "fast" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Rapide</span>
-                  <span className="text-xs font-normal opacity-70">720p · léger</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant={renderMode === "quality" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("quality")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "quality" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Qualité</span>
-                  <span className="text-xs font-normal opacity-70">1080p · CRF 26</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant={renderMode === "premium" ? "default" : "ghost"}
-                  onClick={() => setRenderMode("premium")}
-                  disabled={busy}
-                  className="h-auto flex-col gap-1 px-3 py-3 text-left"
-                  style={renderMode === "premium" ? { backgroundColor: "#39FF14", color: "#050505" } : undefined}
-                >
-                  <span className="text-sm font-bold uppercase tracking-wider">Premium ✦</span>
-                  <span className="text-xs font-normal opacity-70">1080p · CRF 19 · 192k</span>
-                </Button>
+              <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Qualité</div>
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-white/60">
+                <span className="font-bold uppercase tracking-wider" style={{ color: "#39FF14" }}>
+                  Qualité maximale automatique
+                </span>
+                <div className="mt-1">
+                  {serverRender
+                    ? "Rendu serveur : 720p · CRF 20 · audio 160k — le maximum tenable sans saturer le service."
+                    : "Rendu local : 1080p · CRF 20 · audio 192k."}
+                </div>
               </div>
-
             </div>
+
 
             <div className="mb-4">
               <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
