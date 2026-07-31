@@ -136,7 +136,11 @@ function Home() {
   useEffect(() => {
     if (!busy) return;
     const id = setInterval(() => setNowMs(Date.now()), 500);
-    async function handleStallTest() {
+    return () => clearInterval(id);
+  }, [busy]);
+
+  /** Auto-test du coupe-circuit : FFmpeg volontairement figé côté serveur. */
+  async function handleStallTest() {
     setStallTest({ running: true, msg: "Simulation d'un FFmpeg figé (8 s)…", ok: null });
     try {
       const r = await runStallSelfTest(8000);
@@ -156,9 +160,6 @@ function Home() {
       setStallTest({ running: false, ok: false, msg: (e as Error).message });
     }
   }
-
-  return () => clearInterval(id);
-  }, [busy]);
 
   const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
   const cobaltUrl = ytValid
