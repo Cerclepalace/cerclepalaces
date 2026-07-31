@@ -203,10 +203,12 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
   // Le client cible /fonts (FS virtuel du worker) ; ici les polices sont dans
   // le dossier de session.
   const localFilter = String(filter).replace(/fontsdir=\/fonts/g, "fontsdir=fonts");
+  let renderSlotAcquired = false;
 
   try {
     if (hasCues) await fs.writeFile(path.join(s.dir, assName), ass, "utf8");
     await acquireRenderSlot();
+    renderSlotAcquired = true;
     await runFfmpeg(
       [
         "-ss", Number(start).toFixed(3),
@@ -242,7 +244,7 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   } finally {
-    releaseRenderSlot();
+    if (renderSlotAcquired) releaseRenderSlot();
   }
 });
 
