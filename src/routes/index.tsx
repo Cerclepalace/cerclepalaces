@@ -7,7 +7,6 @@ import {
   probeDuration,
   clearSegmentCache,
   FONT_OPTIONS,
-  type RenderMode,
   type Short,
   type FontKey,
   type SubtitlePosition,
