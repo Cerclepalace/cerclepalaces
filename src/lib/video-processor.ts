@@ -504,7 +504,6 @@ function computeQualityScore(cues: Cue[], durationSec: number): number {
 export async function processVideo(opts: {
   file: File;
   segmentSec: number;
-  renderMode?: RenderMode;
   style: SubtitleStyle;
   trim?: { start: number; end: number };
   customSegments?: SegmentRange[];
@@ -881,7 +880,7 @@ export async function retrySegment(opts: {
   zoomPunch?: boolean;
 }): Promise<Short | null> {
   const { file, segment, index: i, style, onProgress, onLog, onShort, onMetric } = opts;
-  const profile = RENDER_PROFILES[opts.renderMode ?? "fast"];
+  const profile = LOCAL_PROFILE;
   const wordByWord = opts.wordByWord ?? true;
   const brandedFrame = opts.brandedFrame ?? false;
   const zoomPunch = opts.zoomPunch ?? false;
