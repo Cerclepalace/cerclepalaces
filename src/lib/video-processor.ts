@@ -10,7 +10,16 @@ import {
   sourceFingerprint,
 } from "./segment-cache";
 import { FFmpegPool, suggestedPoolSize } from "./ffmpeg-pool";
+import { RemoteRenderPool, isMobileDevice } from "./remote-render";
 import pauseLogoAsset from "@/assets/promo-pause-logo.png.asset.json";
+
+/** Interface commune au pool local (Web Workers) et au pool distant (serveur ffmpeg). */
+type RenderBackend = {
+  size(): number;
+  run<T>(fn: (w: { send<R = unknown>(msg: Record<string, unknown>): Promise<R> }) => Promise<T>): Promise<T>;
+  terminate(): void;
+};
+
 export { clearSegmentCache } from "./segment-cache";
 export { suggestedPoolSize } from "./ffmpeg-pool";
 
