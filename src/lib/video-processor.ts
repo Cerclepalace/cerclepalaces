@@ -350,12 +350,22 @@ async function retry<T>(
 }
 
 
+export type PromoPause = {
+  /** moment de la pause, en secondes depuis le début du short */
+  atSec: number;
+  /** durée de la pause figée, en secondes */
+  durationSec: number;
+  /** une voix off est chargée dans le worker (promo_vo.mp3) */
+  hasVoice: boolean;
+};
+
 function buildVideoFilter(
   profile: RenderProfile,
   hasCues: boolean,
   assName: string,
   brandedFrame: boolean,
   zoomPunch: boolean,
+  promo?: PromoPause | null,
 ): string {
   const fgScale = zoomPunch
     // Subtle continuous zoom (1.00 -> 1.06 over ~5s loops) for kinetic feel.
@@ -369,16 +379,56 @@ function buildVideoFilter(
   ];
   const subLabel = hasCues ? "[vs]" : "[vs]";
   base.push(hasCues ? `[v]subtitles=${assName}:fontsdir=/fonts${subLabel}` : `[v]null${subLabel}`);
+  const vEnd = promo ? "[vpre]" : "[vout]";
   if (brandedFrame) {
     // Yellow TikTokBoost signature frame (thick border, glow via double drawbox).
     base.push(
-      `[vs]drawbox=x=0:y=0:w=iw:h=ih:color=0xFFE500@0.25:t=16,drawbox=x=6:y=6:w=iw-12:h=ih-12:color=0xFFE500@0.95:t=8[vout]`,
+      `[vs]drawbox=x=0:y=0:w=iw:h=ih:color=0xFFE500@0.25:t=16,drawbox=x=6:y=6:w=iw-12:h=ih-12:color=0xFFE500@0.95:t=8${vEnd}`,
     );
   } else {
-    base.push(`[vs]null[vout]`);
+    base.push(`[vs]null${vEnd}`);
+  }
+
+  if (promo) {
+    const P = Math.max(0.2, promo.atSec);
+    const D = Math.max(0.5, promo.durationSec);
+    const step = (1 / profile.fps).toFixed(4);
+    // ── vidéo : segment 1 → image figée (durée D) → segment 2 ────────────────
+    base.push(`[vpre]split=3[p1][p2][p3]`);
+    base.push(`[p1]trim=0:${P.toFixed(3)},setpts=PTS-STARTPTS[s1]`);
+    base.push(
+      `[p2]trim=${P.toFixed(3)}:${(P + Number(step)).toFixed(3)},setpts=PTS-STARTPTS,` +
+        `tpad=stop_mode=clone:stop_duration=${D.toFixed(3)},trim=0:${D.toFixed(3)},` +
+        `setpts=PTS-STARTPTS,eq=brightness=-0.06:saturation=0.95[fz]`,
+    );
+    base.push(`[p3]trim=start=${P.toFixed(3)},setpts=PTS-STARTPTS[s3]`);
+    base.push(`[s1][fz][s3]concat=n=3:v=1:a=0,fps=${profile.fps}[vout]`);
+
+    // ── audio : silence pendant la pause, voix off par-dessus ────────────────
+    base.push(
+      `[0:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS,asplit=2[aa][ab]`,
+    );
+    base.push(`[aa]atrim=0:${P.toFixed(3)},asetpts=PTS-STARTPTS[a1]`);
+    base.push(`[ab]atrim=start=${P.toFixed(3)},asetpts=PTS-STARTPTS[a3]`);
+    base.push(
+      `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS[agap]`,
+    );
+    base.push(`[a1][agap][a3]concat=n=3:v=0:a=1[acat]`);
+    if (promo.hasVoice) {
+      const ms = Math.round(P * 1000);
+      base.push(
+        `[1:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${ms}|${ms}[vo]`,
+      );
+      base.push(
+        `[acat][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`,
+      );
+    } else {
+      base.push(`[acat]anull[aout]`);
+    }
   }
   return base.join(";");
 }
+
 
 function computeQualityScore(cues: Cue[], durationSec: number): number {
   if (durationSec <= 0) return 0;
