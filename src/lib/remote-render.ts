@@ -176,14 +176,31 @@ export class RemoteRenderPool {
     const type = msg.type as string;
     const isExtract = type === "extract";
 
-    const doFetch = async (token: string) =>
-      fetch(`${this.baseUrl}/session/${this.sessionId}/${isExtract ? "extract" : "render"}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(msg),
-      });
+    const doFetch = async (token: string) => {
+      const controller = new AbortController();
+      // Une requête Railway ne doit jamais immobiliser tout le pipeline. Un
+      // rendu de short qui dépasse 3 minutes est considéré bloqué et passe au
+      // fallback suivant (sans promo, puis sans sous-titres).
+      const timeout = window.setTimeout(() => controller.abort(), isExtract ? 90_000 : 180_000);
+      try {
+        return await fetch(
+          `${this.baseUrl}/session/${this.sessionId}/${isExtract ? "extract" : "render"}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(msg),
+            signal: controller.signal,
+          },
+        );
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
 
-    const maxAttempts = 3;
+    // Ici on ne reprend que les vraies coupures réseau. Les erreurs FFmpeg 5xx
+    // sont déterministes : les rejouer trois fois à l'identique multipliait les
+    // 3 fallbacks du pipeline en 9 encodages et donnait une reprise « infinie ».
+    const maxAttempts = 2;
     let lastError = "connexion interrompue";
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -192,7 +209,12 @@ export class RemoteRenderPool {
         res = await doFetch(await this.freshToken());
       } catch (error) {
         // Coupure réseau mobile / connexion fermée par iOS ("Load failed").
-        lastError = error instanceof Error ? error.message : "connexion interrompue";
+        lastError =
+          error instanceof DOMException && error.name === "AbortError"
+            ? "délai maximal dépassé"
+            : error instanceof Error
+              ? error.message
+              : "connexion interrompue";
         if (this.closed || attempt === maxAttempts) break;
         await new Promise((r) => setTimeout(r, 1500 * attempt));
         continue;
@@ -212,15 +234,15 @@ export class RemoteRenderPool {
         }
         if (attempt < maxAttempts) continue;
       }
-      if (res.status >= 500 && attempt < maxAttempts) {
+      if (res.status >= 500) {
+        let detail = `${res.status}`;
         try {
-          const j = (await res.clone().json()) as { error?: string };
-          lastError = j.error || `${res.status}`;
+          const j = (await res.json()) as { error?: string };
+          if (j.error) detail = j.error;
         } catch {
-          lastError = `${res.status}`;
+          /* ignore */
         }
-        await new Promise((r) => setTimeout(r, 1500 * attempt));
-        continue;
+        throw new Error(`Rendu serveur: ${detail}`);
       }
       if (!res.ok) {
         let detail = `${res.status}`;

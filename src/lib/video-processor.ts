@@ -657,13 +657,18 @@ export async function processVideo(opts: {
           audioB64 = await retry(
             `Extraction audio segment ${i + 1}`,
             async (attempt) => {
-              if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+              onMetric?.({ index: i, status: "transcribing", attempts: attempt });
               const r = await pool.run<{ audioBase64: string }>((w) =>
                 w.send({ type: "extract", index: i, start: seg.start, duration: dur }),
               );
               return r.audioBase64;
             },
-            { onLog, signal },
+            {
+              onLog,
+              signal,
+              onRetry: (attempt, err) =>
+                onMetric?.({ index: i, status: "retrying", attempts: attempt, lastError: err.message }),
+            },
 
           );
           void setCachedAudio(fingerprint, seg.start, seg.end, audioB64).catch(() => {});
@@ -671,14 +676,19 @@ export async function processVideo(opts: {
         const r = await retry(
           `Transcription segment ${i + 1}`,
           async (attempt) => {
-            if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+            onMetric?.({ index: i, status: "transcribing", attempts: attempt });
             return geminiThrottle.run(() =>
               transcribeSegment({
                 data: { audioBase64: audioB64!, mimeType: "audio/webm", durationSec: dur },
               }),
             );
           },
-          { onLog, signal },
+          {
+            onLog,
+            signal,
+            onRetry: (attempt, err) =>
+              onMetric?.({ index: i, status: "retrying", attempts: attempt, lastError: err.message }),
+          },
 
         );
         cues = r.cues;
@@ -713,7 +723,7 @@ export async function processVideo(opts: {
       const res = await retry(
         `Rendu segment ${i + 1}`,
         async (attempt) => {
-          if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          onMetric?.({ index: i, status: "rendering", attempts: attempt, lastError: undefined });
           // A bad optional overlay must never prevent the base short from
           // being exported. Retry once without the promo graph, then with the
           // simplest video graph if the installed FFmpeg lacks a subtitle
@@ -755,7 +765,12 @@ export async function processVideo(opts: {
 
           );
         },
-        { onLog, signal },
+        {
+          onLog,
+          signal,
+          onRetry: (attempt, err) =>
+            onMetric?.({ index: i, status: "retrying", attempts: attempt, lastError: err.message }),
+        },
       );
 
       const blob = new Blob([res.mp4], { type: "video/mp4" });
