@@ -695,7 +695,6 @@ export async function processVideo(opts: {
               hasLogo: !!logoBytes,
             }
           : null;
-      const filter = buildVideoFilter(profile, cues.length > 0, `subs_${i}.ass`, brandedFrame, zoomPunch, promo);
       const ass = buildAssFile(cues, dur, profile, style, wordByWord);
 
       const renderT0 = performance.now();
@@ -703,6 +702,22 @@ export async function processVideo(opts: {
         `Rendu segment ${i + 1}`,
         async (attempt) => {
           if (attempt > 1) onMetric?.({ index: i, status: "retrying", attempts: attempt });
+          // A bad optional overlay must never prevent the base short from
+          // being exported. Retry once without the promo graph, then with the
+          // simplest video graph if the installed FFmpeg lacks a subtitle
+          // filter/font capability.
+          const attemptPromo = attempt === 1 ? promo : null;
+          const attemptHasCues = attempt < 3 && cues.length > 0;
+          if (attempt === 2 && promo) onLog?.(`Segment ${i + 1}: reprise sans pause promo`);
+          if (attempt === 3) onLog?.(`Segment ${i + 1}: reprise vidéo seule sans sous-titres`);
+          const filter = buildVideoFilter(
+            profile,
+            attemptHasCues,
+            `subs_${i}.ass`,
+            brandedFrame,
+            zoomPunch,
+            attemptPromo,
+          );
           return pool.run<{ mp4: ArrayBuffer }>((w) =>
             w.send({
               type: "render",
@@ -710,14 +725,14 @@ export async function processVideo(opts: {
               start: seg.start,
               duration: dur,
               ass,
-              hasCues: cues.length > 0,
+              hasCues: attemptHasCues,
               filter,
               crf: profile.crf,
               audioBitrate: profile.audioBitrate,
               preset: profile.preset,
-              hasPromo: !!promo,
-              hasVoice: !!promo?.hasVoice,
-              hasLogo: !!promo?.hasLogo,
+              hasPromo: !!attemptPromo,
+              hasVoice: !!attemptPromo?.hasVoice,
+              hasLogo: !!attemptPromo?.hasLogo,
             }),
 
           );
