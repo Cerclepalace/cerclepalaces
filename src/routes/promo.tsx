@@ -701,27 +701,10 @@ function PromoPage() {
             {step === 4 && (
               <div className="space-y-5">
                 <h2 className="text-lg font-semibold">5. Export</h2>
-                <div className="flex gap-2">
-                  {(
-                    [
-                      ["fast", "Rapide"],
-                      ["premium", "Premium ✦"],
-                    ] as const
-                  ).map(([k, l]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setQuality(k)}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                        quality === k
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-accent"
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
+                <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  Qualité maximale : 1080×1920 · CRF 19 · audio 192k (automatique).
                 </div>
+
                 <ul className="space-y-1 text-sm text-muted-foreground">
                   <li>• Format : 1080×1920 (9:16)</li>
                   <li>
