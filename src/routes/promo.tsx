@@ -113,7 +113,7 @@ function PromoPage() {
   const [logoAlways, setLogoAlways] = useState(false);
 
   // export
-  const [quality, setQuality] = useState<"fast" | "premium">("premium");
+  const quality = "premium" as const;
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
   const [progress, setProgress] = useState(0);
