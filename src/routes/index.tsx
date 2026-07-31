@@ -1074,11 +1074,28 @@ function Home() {
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <div className="mb-1 text-xs text-white/50">Début : {fmtTime(trimStart)}</div>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-white/50">
+                        <span>Début</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={Math.max(0, (duration || 36000) - 5)}
+                          step={1}
+                          value={Math.round(trimStart)}
+                          onChange={(e) => {
+                            const v = Math.max(0, Number(e.target.value) || 0);
+                            setTrimStart(Math.min(v, Math.max(0, (trimEnd || 5) - 5)));
+                          }}
+                          disabled={busy}
+                          className="w-24 rounded border border-white/15 bg-black/40 px-2 py-1 text-sm text-white focus:border-[#39FF14] focus:outline-none"
+                        />
+                        <span>s · {fmtTime(trimStart)}</span>
+                      </div>
                       <input
                         type="range"
                         min={0}
-                        max={Math.max(0, duration - 5)}
+                        max={Math.max(1, duration - 5)}
                         step={1}
                         value={trimStart}
                         onChange={(e) => {
@@ -1086,11 +1103,29 @@ function Home() {
                           setTrimStart(Math.min(v, trimEnd - 5));
                         }}
                         className="w-full accent-[#39FF14]"
-                        disabled={busy}
+                        disabled={busy || !duration}
                       />
                     </div>
                     <div>
-                      <div className="mb-1 text-xs text-white/50">Fin : {fmtTime(trimEnd)}</div>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-white/50">
+                        <span>Fin</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={5}
+                          max={duration || 36000}
+                          step={1}
+                          value={Math.round(trimEnd)}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            const cap = duration ? Math.min(v, duration) : v;
+                            setTrimEnd(Math.max(cap, trimStart + 5));
+                          }}
+                          disabled={busy}
+                          className="w-24 rounded border border-white/15 bg-black/40 px-2 py-1 text-sm text-white focus:border-[#39FF14] focus:outline-none"
+                        />
+                        <span>s · {fmtTime(trimEnd)}</span>
+                      </div>
                       <input
                         type="range"
                         min={5}
@@ -1102,10 +1137,11 @@ function Home() {
                           setTrimEnd(Math.max(v, trimStart + 5));
                         }}
                         className="w-full accent-[#39FF14]"
-                        disabled={busy}
+                        disabled={busy || !duration}
                       />
                     </div>
                   </div>
+
                 </div>
 
                 {/* SEGMENT LENGTH */}
