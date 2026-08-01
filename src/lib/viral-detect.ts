@@ -11,8 +11,8 @@ import {
   sourceFingerprint,
 } from "./segment-cache";
 
-export const MIN_SHORT_SEC = 15;
-export const MAX_SHORT_SEC = 34;
+export const MIN_SHORT_SEC = 60;
+export const MAX_SHORT_SEC = 70;
 
 export type ViralMoment = {
   id: string;
@@ -239,7 +239,7 @@ function clampWindow(
     const c = cues[i];
     if (c.start >= snapped + MAX_SHORT_SEC) break;
     texts.push(c.text);
-    // on prolonge jusqu'à la fin d'une phrase, sans dépasser 34s
+    // on prolonge jusqu'à la fin d'une phrase, sans dépasser 70s
     if (c.end - snapped <= MAX_SHORT_SEC) end = Math.max(end, c.end + 0.4);
   }
   end = Math.min(limit, Math.max(snapped + MIN_SHORT_SEC, Math.min(snapped + MAX_SHORT_SEC, end)));
