@@ -3,6 +3,7 @@ import { getFFmpeg } from "./video-processor";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
 import { scoreHooks } from "./hook-scoring.functions";
 import { geminiThrottle, type ThrottleOptions } from "./gemini-throttle";
+import { selectNonOverlappingMoments, verifyNoOverlap } from "./overlap";
 import {
   getCachedAudio,
   setCachedAudio,
