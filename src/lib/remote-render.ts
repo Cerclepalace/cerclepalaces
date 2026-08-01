@@ -196,44 +196,78 @@ export class RemoteRenderPool {
       }
     };
 
-    // Le pipeline parent possède déjà ses trois essais progressifs. Le
-    // transport ne réessaie donc pas en plus : cela évite 3 × N encodages et
-    // garantit qu'un segment quitte toujours l'état « Reprise ».
-    let res: Response;
-    try {
-      res = await doFetch(await this.freshToken());
-    } catch (error) {
-      const detail =
-        error instanceof DOMException && error.name === "AbortError"
+    // Les essais progressifs du pipeline parent dégradent le rendu (sans promo,
+    // puis sans sous-titres). Une simple coupure réseau mobile (« Load failed »)
+    // ne doit donc PAS les consommer : on réessaie ici la même requête à
+    // l'identique, seulement pour les erreurs de transport / 502-504.
+    const TRANSPORT_ATTEMPTS = 3;
+    let lastDetail = "connexion interrompue";
+
+    for (let attempt = 1; attempt <= TRANSPORT_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await doFetch(await this.freshToken());
+      } catch (error) {
+        const aborted = error instanceof DOMException && error.name === "AbortError";
+        lastDetail = aborted
           ? "délai maximal dépassé"
           : error instanceof Error
             ? error.message
             : "connexion interrompue";
-      throw new Error(`Service de rendu momentanément indisponible (${detail})`);
-    }
-
-    if (res.status === 401) res = await doFetch(await this.freshToken(true));
-    if (res.status === 404) {
-      const previous = this.sessionId;
-      await this.recreateSession(previous);
-      res = await doFetch(await this.freshToken());
-    }
-    if (!res.ok) {
-      let detail = `${res.status}`;
-      try {
-        const body = (await res.json()) as { error?: string; message?: string };
-        detail = body.error || body.message || detail;
-      } catch {
-        /* réponse non JSON du proxy */
+        // Un abort = le serveur a vraiment mis trop longtemps, inutile d'insister.
+        if (aborted || attempt === TRANSPORT_ATTEMPTS) {
+          throw new Error(`Service de rendu momentanément indisponible (${lastDetail})`);
+        }
+        await new Promise((r) => window.setTimeout(r, 1500 * attempt));
+        continue;
       }
-      throw new Error(`Rendu serveur: ${detail}`);
+
+      if (res.status === 401) res = await doFetch(await this.freshToken(true));
+      if (res.status === 404) {
+        const previous = this.sessionId;
+        await this.recreateSession(previous);
+        res = await doFetch(await this.freshToken());
+      }
+
+      // 502/503/504 : l'instance Railway redémarre ou est saturée → on attend.
+      if ([502, 503, 504].includes(res.status) && attempt < TRANSPORT_ATTEMPTS) {
+        lastDetail = `service saturé (${res.status})`;
+        await new Promise((r) => window.setTimeout(r, 2500 * attempt));
+        continue;
+      }
+
+      if (!res.ok) {
+        let detail = `${res.status}`;
+        try {
+          const body = (await res.json()) as { error?: string; message?: string };
+          detail = body.error || body.message || detail;
+        } catch {
+          /* réponse non JSON du proxy */
+        }
+        throw new Error(`Rendu serveur: ${detail}`);
+      }
+
+      if (isExtract) return res.json();
+
+      // Le corps peut lui aussi casser en cours de téléchargement sur mobile.
+      let buf: ArrayBuffer;
+      try {
+        buf = await res.arrayBuffer();
+      } catch (error) {
+        lastDetail = error instanceof Error ? error.message : "téléchargement interrompu";
+        if (attempt === TRANSPORT_ATTEMPTS) {
+          throw new Error(`Service de rendu momentanément indisponible (${lastDetail})`);
+        }
+        await new Promise((r) => window.setTimeout(r, 1500 * attempt));
+        continue;
+      }
+      if (buf.byteLength === 0) throw new Error("Rendu serveur: fichier vide");
+      return { mp4: buf };
     }
 
-    if (isExtract) return res.json();
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength === 0) throw new Error("Rendu serveur: fichier vide");
-    return { mp4: buf };
+    throw new Error(`Service de rendu momentanément indisponible (${lastDetail})`);
   }
+
 
 
 
