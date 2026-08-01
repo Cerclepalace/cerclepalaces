@@ -3,6 +3,7 @@ import { getFFmpeg } from "./video-processor";
 import { transcribeSegment, type Cue } from "./transcribe.functions";
 import { scoreHooks } from "./hook-scoring.functions";
 import { geminiThrottle, type ThrottleOptions } from "./gemini-throttle";
+import { selectNonOverlappingMoments, verifyNoOverlap } from "./overlap";
 import {
   getCachedAudio,
   setCachedAudio,
@@ -304,7 +305,8 @@ export async function analyzeViralMoments(opts: {
     if (h.startSec < trim.start - 1 || h.startSec > trim.end - MIN_SHORT_SEC) continue;
     const w = clampWindow(Math.max(trim.start, h.startSec), cues, trim.end);
     if (w.end - w.start < MIN_SHORT_SEC - 1) continue;
-    if (moments.some((m) => Math.abs(m.start - w.start) < 8)) continue;
+    // Rejet immédiat de tout candidat qui empiète sur un moment déjà retenu.
+    if (moments.some((m) => w.start < m.end + 0.5 && m.start < w.end + 0.5)) continue;
 
     const audioScore = windowAudioScore(profile, w.start, w.end);
     const emotionScore = emotionDensity(`${h.hookText} ${w.text}`);
@@ -327,5 +329,8 @@ export async function analyzeViralMoments(opts: {
     if (moments.length >= count) break;
   }
 
-  return moments.sort((a, b) => b.score - a.score);
+  // Filet de sécurité : sélection non chevauchante + vérification loggée.
+  const selected = selectNonOverlappingMoments(moments, { gapSec: 0.5, max: count });
+  verifyNoOverlap(selected);
+  return selected.sort((a, b) => b.score - a.score);
 }
