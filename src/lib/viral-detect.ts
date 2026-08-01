@@ -328,5 +328,8 @@ export async function analyzeViralMoments(opts: {
     if (moments.length >= count) break;
   }
 
-  return moments.sort((a, b) => b.score - a.score);
+  // Filet de sécurité : sélection non chevauchante + vérification loggée.
+  const selected = selectNonOverlappingMoments(moments, { gapSec: 0.5, max: count });
+  verifyNoOverlap(selected);
+  return selected.sort((a, b) => b.score - a.score);
 }
