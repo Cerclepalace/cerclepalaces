@@ -69,7 +69,7 @@ function Home() {
   const [duration, setDuration] = useState<number>(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
-  const [segmentSec, setSegmentSec] = useState(70);
+  const segmentSec = 70;
   const [fontKey, setFontKey] = useState<FontKey>("bebas");
   const [colorPreset, setColorPreset] = useState<ColorPresetKey>("neon");
   const [textColor, setTextColor] = useState("#FFFFFF");
