@@ -342,6 +342,19 @@ function Home() {
             ? parseManual()
             : undefined;
 
+        // Vérification post-sélection : on bloque l'export si ça se chevauche.
+        if (!previewOnly && custom && custom.length > 1) {
+          const check = verifyNoOverlap(custom.map((s, i) => ({ ...s, slot: i + 1 })));
+          if (!check.valid) {
+            setBusy(false);
+            setStatus("");
+            setError(
+              `Segments qui se chevauchent — export bloqué. ${check.issues[0].message}`,
+            );
+            return;
+          }
+        }
+
         if (previewOnly) {
           const base = custom && custom.length > 0 ? custom[0].start : trimStart;
           const end = Math.min(duration || base + 8, base + 8);
