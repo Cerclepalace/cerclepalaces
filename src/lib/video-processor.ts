@@ -293,38 +293,52 @@ async function loadFontBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+// Règle fixe : un short dure toujours entre 60 et 70 secondes.
+export const SHORT_MIN_SEC = 60;
+export const SHORT_MAX_SEC = 70;
+
 export function computeSegments(
   durationSec: number,
-  segmentSec: number,
+  _segmentSec: number,
   trim: { start: number; end: number },
   custom?: SegmentRange[],
 ): SegmentRange[] {
-  // Un short ne doit jamais dépasser la durée cible : toute plage trop longue
-  // (moment détecté mal borné, saisie manuelle type "0-300") est redécoupée.
-  const maxLen = Math.max(10, Math.min(90, segmentSec || 70));
-  if (custom && custom.length > 0) {
+  // Découpe une plage en tranches de 60→70s. Une tranche finale trop courte
+  // est étirée vers l'arrière (ou supprimée si la vidéo est trop courte).
+  const slice = (rawStart: number, rawEnd: number): SegmentRange[] => {
+    const start = Math.max(0, Math.min(durationSec, Math.min(rawStart, rawEnd)));
+    const end = Math.max(0, Math.min(durationSec, Math.max(rawStart, rawEnd)));
     const out: SegmentRange[] = [];
-    for (const s of custom) {
-      const start = Math.max(0, Math.min(durationSec, Math.min(s.start, s.end)));
-      const end = Math.max(0, Math.min(durationSec, Math.max(s.start, s.end)));
-      let cur = start;
-      while (end - cur >= 5) {
-        const stop = Math.min(end, cur + maxLen);
-        if (stop - cur >= 5) out.push({ start: cur, end: stop });
-        cur = stop;
+    let cur = start;
+    while (end - cur >= SHORT_MIN_SEC) {
+      const remaining = end - cur;
+      // si le reste tient en une seule tranche <= 70s, on la prend entièrement
+      const len = remaining <= SHORT_MAX_SEC ? remaining : SHORT_MAX_SEC;
+      out.push({ start: cur, end: cur + len });
+      cur += len;
+    }
+    // reliquat < 60s : on l'absorbe en reculant le départ si possible
+    const left = end - cur;
+    if (left > 2) {
+      const backStart = Math.max(start, end - SHORT_MIN_SEC);
+      if (end - backStart >= SHORT_MIN_SEC) {
+        if (out.length === 0 || out[out.length - 1].start !== backStart) {
+          out.push({ start: backStart, end });
+        }
       }
     }
+    return out;
+  };
+
+  if (custom && custom.length > 0) {
+    const out: SegmentRange[] = [];
+    for (const s of custom) out.push(...slice(s.start, s.end));
     return out.sort((a, b) => a.start - b.start);
   }
 
   const from = Math.max(0, Math.min(durationSec, trim.start));
   const to = Math.max(from, Math.min(durationSec, trim.end || durationSec));
-  const out: SegmentRange[] = [];
-  for (let start = from; to - start >= 10; start += maxLen) {
-    out.push({ start, end: Math.min(to, start + maxLen) });
-  }
-  return out;
-
+  return slice(from, to);
 }
 
 export type SegmentMetric = {

@@ -69,7 +69,7 @@ function Home() {
   const [duration, setDuration] = useState<number>(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
-  const [segmentSec, setSegmentSec] = useState(70);
+  const segmentSec = 70;
   const [fontKey, setFontKey] = useState<FontKey>("bebas");
   const [colorPreset, setColorPreset] = useState<ColorPresetKey>("neon");
   const [textColor, setTextColor] = useState("#FFFFFF");
@@ -1197,35 +1197,24 @@ function Home() {
 
                 </div>
 
-                {/* SEGMENT LENGTH */}
+                {/* SEGMENT LENGTH — fixe 60→70s */}
                 <div className="mb-4">
-                  <div className="mb-2 flex items-baseline justify-between">
-                    <label className="text-sm uppercase tracking-widest text-white/60">
-                      Durée par short
-                    </label>
+                  <div className="mb-2 text-sm uppercase tracking-widest text-white/60">
+                    Durée par short
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-white/60">
                     <span
-                      className="text-2xl font-bold"
+                      className="text-lg font-bold"
                       style={{ fontFamily: "Bebas Neue, Impact, sans-serif", color: "#39FF14" }}
                     >
-                      {segmentSec}s
+                      60 à 70 secondes
                     </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={30}
-                    max={90}
-                    step={5}
-                    value={segmentSec}
-                    onChange={(e) => setSegmentSec(Number(e.target.value))}
-                    className="w-full accent-[#39FF14]"
-                    disabled={busy}
-                  />
-                  <div className="mt-1 flex justify-between text-xs text-white/40">
-                    <span>30s</span>
-                    <span>60s</span>
-                    <span>90s</span>
+                    <div className="mt-1">
+                      Durée verrouillée : chaque short fait au minimum 1 minute et jamais plus de 70s.
+                    </div>
                   </div>
                 </div>
+
               </>
             ) : (
               <div className="mb-4">
