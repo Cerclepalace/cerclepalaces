@@ -1578,7 +1578,7 @@ function Home() {
             </div>
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs text-white/40">
-                L'aperçu génère un extrait rapide de 8 s (720p) au début de la découpe pour valider le style des sous-titres avant le rendu complet. Les extractions audio et transcriptions sont mises en cache : relancer un rendu sur le même fichier saute directement au rendu.
+                L'aperçu génère un extrait rapide de 8 s au début de la découpe pour valider le style des sous-titres avant le rendu complet. Les extractions audio et transcriptions sont mises en cache : relancer un rendu sur le même fichier saute directement au rendu.
               </p>
               <button
                 type="button"
