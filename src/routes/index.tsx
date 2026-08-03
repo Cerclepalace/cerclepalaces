@@ -290,14 +290,22 @@ function Home() {
         file,
         trim: { start: trimStart, end: trimEnd || duration },
         count: momentCount,
+        minHookScore: minQuality,
+        minScore: minQuality,
         throttle: { maxConcurrent, rpm },
         onProgress: (p) => setAnalyzeStatus(p),
         onLog: (m) => console.debug("[viral]", m),
       });
       setMoments(res);
-      setSelectedMoments(new Set(res.map((m) => m.id)));
+      // On ne présélectionne que les variantes qui passent les seuils.
+      const ok = res.filter((m) => !m.belowThreshold);
+      setSelectedMoments(new Set((ok.length ? ok : res).map((m) => m.id)));
+      const under = res.length - ok.length;
       setAnalyzeStatus(
-        res.length ? `${res.length} moment${res.length > 1 ? "s" : ""} détecté${res.length > 1 ? "s" : ""}` : "Aucun moment détecté",
+        res.length
+          ? `${res.length} variante${res.length > 1 ? "s" : ""} générée${res.length > 1 ? "s" : ""} · ${ok.length} ≥ ${minQuality}%` +
+            (under ? ` · ${under} sous le seuil (à revoir)` : "")
+          : "Aucun moment détecté",
       );
     } catch (e) {
       setError(`Analyse échouée: ${(e as Error).message}`);
@@ -305,7 +313,7 @@ function Home() {
     } finally {
       setAnalyzing(false);
     }
-  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, maxConcurrent, rpm]);
+  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, minQuality, maxConcurrent, rpm]);
 
   const updateMoment = (id: string, patch: { start?: number; end?: number }) => {
     setMoments((prev) =>
