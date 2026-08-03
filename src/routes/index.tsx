@@ -12,11 +12,17 @@ import {
   type SubtitlePosition,
   type SegmentRange,
   type SegmentMetric,
+  MIN_EXPORT_WIDTH,
+  MIN_EXPORT_HEIGHT,
 } from "@/lib/video-processor";
 import {
   analyzeViralMoments,
+  clampThreshold,
   MIN_SHORT_SEC,
   MAX_SHORT_SEC,
+  MIN_THRESHOLD,
+  MAX_THRESHOLD,
+  DEFAULT_VARIANTS,
   type ViralMoment,
 } from "@/lib/viral-detect";
 import { verifyNoOverlap } from "@/lib/overlap";
@@ -125,7 +131,8 @@ function Home() {
   // ── Détection multi-signal des moments forts ──────────────────────────────
   const [moments, setMoments] = useState<ViralMoment[]>([]);
   const [selectedMoments, setSelectedMoments] = useState<Set<string>>(new Set());
-  const [momentCount, setMomentCount] = useState(5);
+  const [momentCount] = useState(DEFAULT_VARIANTS);
+  const [minQuality, setMinQuality] = useState(MIN_THRESHOLD);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeStatus, setAnalyzeStatus] = useState("");
 
@@ -283,14 +290,22 @@ function Home() {
         file,
         trim: { start: trimStart, end: trimEnd || duration },
         count: momentCount,
+        minHookScore: minQuality,
+        minScore: minQuality,
         throttle: { maxConcurrent, rpm },
         onProgress: (p) => setAnalyzeStatus(p),
         onLog: (m) => console.debug("[viral]", m),
       });
       setMoments(res);
-      setSelectedMoments(new Set(res.map((m) => m.id)));
+      // On ne présélectionne que les variantes qui passent les seuils.
+      const ok = res.filter((m) => !m.belowThreshold);
+      setSelectedMoments(new Set((ok.length ? ok : res).map((m) => m.id)));
+      const under = res.length - ok.length;
       setAnalyzeStatus(
-        res.length ? `${res.length} moment${res.length > 1 ? "s" : ""} détecté${res.length > 1 ? "s" : ""}` : "Aucun moment détecté",
+        res.length
+          ? `${res.length} variante${res.length > 1 ? "s" : ""} générée${res.length > 1 ? "s" : ""} · ${ok.length} ≥ ${minQuality}%` +
+            (under ? ` · ${under} sous le seuil (à revoir)` : "")
+          : "Aucun moment détecté",
       );
     } catch (e) {
       setError(`Analyse échouée: ${(e as Error).message}`);
@@ -298,7 +313,7 @@ function Home() {
     } finally {
       setAnalyzing(false);
     }
-  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, maxConcurrent, rpm]);
+  }, [file, analyzing, trimStart, trimEnd, duration, momentCount, minQuality, maxConcurrent, rpm]);
 
   const updateMoment = (id: string, patch: { start?: number; end?: number }) => {
     setMoments((prev) =>
@@ -992,21 +1007,29 @@ function Home() {
                     MOMENTS VIRAUX ✦
                   </div>
                   <p className="mt-1 text-xs text-white/60">
-                    Score combiné : hooks du transcript (IA) + énergie audio locale + densité de mots
-                    émotionnels. Chaque clip démarre pile sur la phrase choc, {MIN_SHORT_SEC}–{MAX_SHORT_SEC}s.
+                    5 variantes générées à chaque analyse (angles de hook différents), toutes en 2K
+                    ({MIN_EXPORT_WIDTH}×{MIN_EXPORT_HEIGHT}), {MIN_SHORT_SEC}–{MAX_SHORT_SEC}s, avec
+                    hook et note ≥ seuil. Sous le seuil → régénération automatique (3 passes).
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <label className="text-xs text-white/60" htmlFor="minqual">
+                    Seuil min
+                  </label>
                   <input
+                    id="minqual"
                     type="number"
-                    min={3}
-                    max={5}
-                    value={momentCount}
-                    onChange={(e) => setMomentCount(Math.max(3, Math.min(5, Number(e.target.value) || 3)))}
+                    min={MIN_THRESHOLD}
+                    max={MAX_THRESHOLD}
+                    step={1}
+                    value={minQuality}
+                    onChange={(e) => setMinQuality(clampThreshold(Number(e.target.value)))}
                     disabled={busy || analyzing}
                     className="w-16 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
-                    aria-label="Nombre de moments"
+                    aria-label="Score minimum (hook et note)"
                   />
+                  <span className="text-xs text-white/40">%</span>
+
                   <Button
                     type="button"
                     onClick={analyze}
@@ -1052,19 +1075,31 @@ function Home() {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-semibold text-white/40">
+                                V{moments.indexOf(m) + 1}
+                              </span>
                               <span
                                 className="rounded-md px-2 py-0.5 text-sm font-bold"
-                                style={{ backgroundColor: "#FFE500", color: "#050505" }}
+                                style={{
+                                  backgroundColor: m.belowThreshold ? "#FF4D4D" : "#FFE500",
+                                  color: m.belowThreshold ? "#fff" : "#050505",
+                                }}
                               >
                                 {m.score}
                               </span>
                               <span className="text-xs text-white/50">
                                 hook {m.hookScore} · audio {m.audioScore} · émotion {m.emotionScore}
                               </span>
+                              {m.belowThreshold && (
+                                <span className="text-xs font-semibold text-[#FF6B6B]">
+                                  sous le seuil {minQuality}% — relance l'analyse
+                                </span>
+                              )}
                               {m.reason && (
                                 <span className="text-xs text-[#39FF14]/80">{m.reason}</span>
                               )}
                             </div>
+
                             {m.hookText && (
                               <p className="mt-2 text-sm text-white">« {m.hookText} »</p>
                             )}
@@ -1269,8 +1304,8 @@ function Home() {
                 </span>
                 <div className="mt-1">
                   {serverRender
-                    ? "Rendu serveur : 720p · CRF 20 · audio 160k — le maximum tenable sans saturer le service."
-                    : "Rendu local : 1080p · CRF 20 · audio 192k."}
+                    ? `Rendu serveur : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 21 · preset ultrafast · audio 160k — sources plus petites upscalées en lanczos.`
+                    : `Rendu local : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 20 · audio 192k — jamais en dessous du 2K.`}
                 </div>
               </div>
             </div>
@@ -1543,7 +1578,7 @@ function Home() {
             </div>
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs text-white/40">
-                L'aperçu génère un extrait rapide de 8 s (720p) au début de la découpe pour valider le style des sous-titres avant le rendu complet. Les extractions audio et transcriptions sont mises en cache : relancer un rendu sur le même fichier saute directement au rendu.
+                L'aperçu génère un extrait rapide de 8 s au début de la découpe pour valider le style des sous-titres avant le rendu complet. Les extractions audio et transcriptions sont mises en cache : relancer un rendu sur le même fichier saute directement au rendu.
               </p>
               <button
                 type="button"

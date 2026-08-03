@@ -9,7 +9,13 @@ const LineSchema = z.object({
 
 const InputSchema = z.object({
   lines: z.array(LineSchema).min(1).max(600),
-  count: z.number().int().min(3).max(8).default(5),
+  count: z.number().int().min(3).max(12).default(5),
+  /** numéro de passe : sert à demander des angles différents à chaque relance */
+  pass: z.number().int().min(0).max(5).default(0),
+  /** timestamps déjà retenus, à éviter */
+  avoidSec: z.array(z.number()).max(50).default([]),
+  /** seuil minimum de score exigé (75-95) */
+  minScore: z.number().int().min(75).max(95).default(75),
 });
 
 export type HookCandidate = {
@@ -42,10 +48,19 @@ Repère les ${data.count * 2} moments avec le plus fort potentiel viral. Un bon 
 
 Règles :
 - startSec = le timestamp EXACT du début de la phrase choc (jamais avant, pas de silence en ouverture).
-- score = 0-100, potentiel viral réel (sois sévère, réserve >85 aux moments exceptionnels).
+- score = 0-100, potentiel viral réel des 3 premières secondes (sois sévère, réserve >85 aux moments exceptionnels).
+- Ne propose que des moments dont tu estimes le score >= ${data.minScore}. Pas de plafond : 95, 99 sont les bienvenus.
 - hookText = la phrase choc telle qu'elle est dite (max 140 caractères).
 - reason = 8 mots max, en français.
-- Classe du meilleur au moins bon. Pas de doublons ni de moments à moins de 10s d'écart.
+- Classe du meilleur au moins bon. Pas de doublons ni de moments à moins de 10s d'écart.${
+      data.pass > 0
+        ? `\n- PASSE ${data.pass + 1} : propose des ANGLES DIFFÉRENTS des précédents (autre émotion, autre promesse, autre partie de la vidéo).`
+        : ""
+    }${
+      data.avoidSec.length
+        ? `\n- Évite absolument ces timestamps déjà utilisés (±15s) : ${data.avoidSec.map((s) => s.toFixed(0)).join(", ")}.`
+        : ""
+    }
 
 Transcription :
 ${transcript}

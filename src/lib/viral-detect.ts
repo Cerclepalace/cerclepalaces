@@ -27,6 +27,8 @@ export type ViralMoment = {
   hookText: string;
   transcript: string;
   reason: string;
+  /** true si la variante n'atteint pas les seuils minimum exigés */
+  belowThreshold?: boolean;
 };
 
 /** Mots à forte charge émotionnelle (fr + en) — densité = signal de buzz. */
@@ -247,17 +249,34 @@ function clampWindow(
   return { start: snapped, end, text: texts.join(" ") };
 }
 
+/** Seuils de qualité imposés : jamais en dessous de 75, pas de plafond haut. */
+export const MIN_THRESHOLD = 75;
+export const MAX_THRESHOLD = 95;
+export const DEFAULT_VARIANTS = 5;
+
+export function clampThreshold(v: number | undefined, fallback = MIN_THRESHOLD): number {
+  const n = Math.round(Number(v ?? fallback));
+  if (!isFinite(n)) return fallback;
+  return Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, n));
+}
+
 export async function analyzeViralMoments(opts: {
   file: File;
   trim: { start: number; end: number };
   count?: number;
+  /** seuil minimum du score de hook (75-95) */
+  minHookScore?: number;
+  /** seuil minimum de la note globale (75-95) */
+  minScore?: number;
   throttle?: ThrottleOptions;
   onProgress?: (phase: string) => void;
   onLog?: (m: string) => void;
   signal?: AbortSignal;
 }): Promise<ViralMoment[]> {
   const { file, trim, onProgress, onLog, signal } = opts;
-  const count = Math.max(3, Math.min(5, opts.count ?? 5));
+  const count = Math.max(3, Math.min(5, opts.count ?? DEFAULT_VARIANTS));
+  const minHookScore = clampThreshold(opts.minHookScore);
+  const minScore = clampThreshold(opts.minScore);
   if (opts.throttle) geminiThrottle.configure(opts.throttle);
 
   onProgress?.("Analyse audio locale (énergie, ruptures, silences)");
@@ -272,41 +291,16 @@ export async function analyzeViralMoments(opts: {
     signal,
   );
 
-  let hooks: Array<{ startSec: number; score: number; hookText: string; reason: string }> = [];
-  if (cues.length > 0) {
-    onProgress?.("Détection des hooks (IA)");
-    try {
-      const lines = cues.slice(0, 600).map((c) => ({ t: c.start, text: c.text.slice(0, 300) }));
-      const r = await scoreHooks({ data: { lines, count } });
-      hooks = r.hooks;
-    } catch (e) {
-      onLog?.(`Scoring IA indisponible: ${(e as Error).message}`);
-    }
-  }
+  const lines = cues.slice(0, 600).map((c) => ({ t: c.start, text: c.text.slice(0, 300) }));
 
-  // Fallback 100% audio si pas de transcript / pas de hooks.
-  if (hooks.length === 0) {
-    const step = 3;
-    const cands: Array<{ start: number; s: number }> = [];
-    for (let t = trim.start; t + 25 <= trim.end; t += step) {
-      cands.push({ start: t, s: windowAudioScore(profile, t, t + 25) });
-    }
-    cands.sort((a, b) => b.s - a.s);
-    hooks = cands.slice(0, count * 2).map((c) => ({
-      startSec: c.start,
-      score: Math.round(c.s * 100),
-      hookText: "",
-      reason: "Pic d'énergie audio",
-    }));
-  }
-
-  const moments: ViralMoment[] = [];
-  for (const h of hooks) {
-    if (h.startSec < trim.start - 1 || h.startSec > trim.end - MIN_SHORT_SEC) continue;
+  const buildMoment = (
+    h: { startSec: number; score: number; hookText: string; reason: string },
+    taken: ViralMoment[],
+  ): ViralMoment | null => {
+    if (h.startSec < trim.start - 1 || h.startSec > trim.end - MIN_SHORT_SEC) return null;
     const w = clampWindow(Math.max(trim.start, h.startSec), cues, trim.end);
-    if (w.end - w.start < MIN_SHORT_SEC - 1) continue;
-    // Rejet immédiat de tout candidat qui empiète sur un moment déjà retenu.
-    if (moments.some((m) => w.start < m.end + 0.5 && m.start < w.end + 0.5)) continue;
+    if (w.end - w.start < MIN_SHORT_SEC - 1) return null;
+    if (taken.some((m) => w.start < m.end + 0.5 && m.start < w.end + 0.5)) return null;
 
     const audioScore = windowAudioScore(profile, w.start, w.end);
     const emotionScore = emotionDensity(`${h.hookText} ${w.text}`);
@@ -314,7 +308,7 @@ export async function analyzeViralMoments(opts: {
     const score = Math.round(
       Math.max(0, Math.min(1, hookScore * 0.45 + audioScore * 0.3 + emotionScore * 0.25)) * 100,
     );
-    moments.push({
+    return {
       id: `${w.start.toFixed(2)}-${w.end.toFixed(2)}`,
       start: w.start,
       end: w.end,
@@ -325,12 +319,78 @@ export async function analyzeViralMoments(opts: {
       hookText: h.hookText,
       transcript: w.text.slice(0, 320),
       reason: h.reason,
-    });
-    if (moments.length >= count) break;
+      belowThreshold: false,
+    };
+  };
+
+  const accepted: ViralMoment[] = [];
+  const rejected: ViralMoment[] = [];
+  const MAX_PASSES = 3;
+
+  if (cues.length > 0) {
+    for (let pass = 0; pass < MAX_PASSES && accepted.length < count; pass++) {
+      if (signal?.aborted) break;
+      onProgress?.(
+        pass === 0
+          ? `Détection des hooks (IA) — ${count} variantes`
+          : `Régénération ${pass}/${MAX_PASSES - 1} (hook < ${minHookScore}%)`,
+      );
+      try {
+        const r = await scoreHooks({
+          data: {
+            lines,
+            count,
+            pass,
+            avoidSec: accepted.map((m) => m.start),
+            minScore: minHookScore,
+          },
+        });
+        for (const h of r.hooks) {
+          if (accepted.length >= count) break;
+          const m = buildMoment(h, [...accepted, ...rejected]);
+          if (!m) continue;
+          if (m.hookScore >= minHookScore && m.score >= minScore) accepted.push(m);
+          else rejected.push(m);
+        }
+      } catch (e) {
+        onLog?.(`Scoring IA indisponible: ${(e as Error).message}`);
+        break;
+      }
+    }
   }
 
-  // Filet de sécurité : sélection non chevauchante + vérification loggée.
-  const selected = selectNonOverlappingMoments(moments, { gapSec: 0.5, max: count });
+  // Fallback 100% audio si l'IA n'a rien donné du tout.
+  if (accepted.length === 0 && rejected.length === 0) {
+    const step = 3;
+    const cands: Array<{ start: number; s: number }> = [];
+    for (let t = trim.start; t + MIN_SHORT_SEC <= trim.end; t += step) {
+      cands.push({ start: t, s: windowAudioScore(profile, t, t + MIN_SHORT_SEC) });
+    }
+    cands.sort((a, b) => b.s - a.s);
+    for (const c of cands.slice(0, count * 3)) {
+      if (accepted.length + rejected.length >= count) break;
+      const m = buildMoment(
+        { startSec: c.start, score: Math.round(c.s * 100), hookText: "", reason: "Pic d'énergie audio" },
+        [...accepted, ...rejected],
+      );
+      if (!m) continue;
+      if (m.hookScore >= minHookScore && m.score >= minScore) accepted.push(m);
+      else rejected.push(m);
+    }
+  }
+
+  // Complète jusqu'à `count` variantes avec les meilleurs recalés, clairement signalés.
+  const filler = rejected
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(0, count - accepted.length))
+    .map((m) => ({ ...m, belowThreshold: true }));
+  if (filler.length) {
+    onLog?.(
+      `${filler.length} variante(s) sous le seuil (hook ≥ ${minHookScore}%, note ≥ ${minScore}%) — signalées à l'utilisateur.`,
+    );
+  }
+
+  const selected = selectNonOverlappingMoments([...accepted, ...filler], { gapSec: 0.5, max: count });
   verifyNoOverlap(selected);
   return selected.sort((a, b) => b.score - a.score);
 }
