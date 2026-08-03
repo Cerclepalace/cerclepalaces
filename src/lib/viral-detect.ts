@@ -27,6 +27,8 @@ export type ViralMoment = {
   hookText: string;
   transcript: string;
   reason: string;
+  /** true si la variante n'atteint pas les seuils minimum exigés */
+  belowThreshold?: boolean;
 };
 
 /** Mots à forte charge émotionnelle (fr + en) — densité = signal de buzz. */
