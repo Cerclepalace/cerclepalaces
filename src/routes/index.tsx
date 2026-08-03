@@ -12,11 +12,17 @@ import {
   type SubtitlePosition,
   type SegmentRange,
   type SegmentMetric,
+  MIN_EXPORT_WIDTH,
+  MIN_EXPORT_HEIGHT,
 } from "@/lib/video-processor";
 import {
   analyzeViralMoments,
+  clampThreshold,
   MIN_SHORT_SEC,
   MAX_SHORT_SEC,
+  MIN_THRESHOLD,
+  MAX_THRESHOLD,
+  DEFAULT_VARIANTS,
   type ViralMoment,
 } from "@/lib/viral-detect";
 import { verifyNoOverlap } from "@/lib/overlap";
