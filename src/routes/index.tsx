@@ -1304,8 +1304,8 @@ function Home() {
                 </span>
                 <div className="mt-1">
                   {serverRender
-                    ? "Rendu serveur : 720p · CRF 20 · audio 160k — le maximum tenable sans saturer le service."
-                    : "Rendu local : 1080p · CRF 20 · audio 192k."}
+                    ? `Rendu serveur : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 21 · preset ultrafast · audio 160k — sources plus petites upscalées en lanczos.`
+                    : `Rendu local : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 20 · audio 192k — jamais en dessous du 2K.`}
                 </div>
               </div>
             </div>
