@@ -9,7 +9,13 @@ const LineSchema = z.object({
 
 const InputSchema = z.object({
   lines: z.array(LineSchema).min(1).max(600),
-  count: z.number().int().min(3).max(8).default(5),
+  count: z.number().int().min(3).max(12).default(5),
+  /** numéro de passe : sert à demander des angles différents à chaque relance */
+  pass: z.number().int().min(0).max(5).default(0),
+  /** timestamps déjà retenus, à éviter */
+  avoidSec: z.array(z.number()).max(50).default([]),
+  /** seuil minimum de score exigé (75-95) */
+  minScore: z.number().int().min(75).max(95).default(75),
 });
 
 export type HookCandidate = {
