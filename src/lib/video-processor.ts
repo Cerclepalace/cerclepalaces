@@ -109,22 +109,25 @@ type RenderProfile = {
   preset: string;
 };
 
-// Un seul profil : la meilleure qualité que chaque moteur supporte sans tomber.
-// - En local (ffmpeg.wasm) : 1080x1920, CRF 20, preset veryfast (compromis
-//   qualité/mémoire tenable dans un onglet).
-// - En distant (petite instance Railway) : 1080p fait exploser la RAM et
-//   renvoie un 502. On reste en 1280 de haut mais avec un CRF bien plus bas
-//   et un audio 160k, ce qui donne une image nette sans crash.
+// Plancher de qualité imposé : 2K minimum sur le grand côté (2048 px) en 9:16.
+// Toute source plus petite est upscalée (scale=...:flags=lanczos en fin de
+// chaîne), aucune sortie ne descend sous ce seuil, local comme distant.
+export const MIN_EXPORT_WIDTH = 1152;
+export const MIN_EXPORT_HEIGHT = 2048;
+
 const LOCAL_PROFILE: RenderProfile = {
-  width: 1080, height: 1920, bgWidth: 540, bgHeight: 960,
-  blur: "16:2", fontSize: 100, outline: 6, shadow: 4, marginV: 270,
+  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 576, bgHeight: 1024,
+  blur: "16:2", fontSize: 107, outline: 6, shadow: 4, marginV: 288,
   crf: "20", audioBitrate: "192k", fps: 30, preset: "veryfast",
 };
 
+// Distant : même résolution 2K (contrainte non négociable), mais preset
+// ultrafast + CRF légèrement plus haut et 1 thread pour rester sous la RAM
+// de la petite instance.
 const REMOTE_PROFILE: RenderProfile = {
-  width: 720, height: 1280, bgWidth: 360, bgHeight: 640,
-  blur: "12:1", fontSize: 66, outline: 4, shadow: 3, marginV: 180,
-  crf: "20", audioBitrate: "160k", fps: 30, preset: "veryfast",
+  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 576, bgHeight: 1024,
+  blur: "12:1", fontSize: 107, outline: 5, shadow: 4, marginV: 288,
+  crf: "21", audioBitrate: "160k", fps: 30, preset: "ultrafast",
 };
 
 
