@@ -131,7 +131,8 @@ function Home() {
   // ── Détection multi-signal des moments forts ──────────────────────────────
   const [moments, setMoments] = useState<ViralMoment[]>([]);
   const [selectedMoments, setSelectedMoments] = useState<Set<string>>(new Set());
-  const [momentCount, setMomentCount] = useState(5);
+  const [momentCount] = useState(DEFAULT_VARIANTS);
+  const [minQuality, setMinQuality] = useState(MIN_THRESHOLD);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeStatus, setAnalyzeStatus] = useState("");
 
