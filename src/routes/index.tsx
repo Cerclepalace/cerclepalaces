@@ -992,21 +992,29 @@ function Home() {
                     MOMENTS VIRAUX ✦
                   </div>
                   <p className="mt-1 text-xs text-white/60">
-                    Score combiné : hooks du transcript (IA) + énergie audio locale + densité de mots
-                    émotionnels. Chaque clip démarre pile sur la phrase choc, {MIN_SHORT_SEC}–{MAX_SHORT_SEC}s.
+                    5 variantes générées à chaque analyse (angles de hook différents), toutes en 2K
+                    ({MIN_EXPORT_WIDTH}×{MIN_EXPORT_HEIGHT}), {MIN_SHORT_SEC}–{MAX_SHORT_SEC}s, avec
+                    hook et note ≥ seuil. Sous le seuil → régénération automatique (3 passes).
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <label className="text-xs text-white/60" htmlFor="minqual">
+                    Seuil min
+                  </label>
                   <input
+                    id="minqual"
                     type="number"
-                    min={3}
-                    max={5}
-                    value={momentCount}
-                    onChange={(e) => setMomentCount(Math.max(3, Math.min(5, Number(e.target.value) || 3)))}
+                    min={MIN_THRESHOLD}
+                    max={MAX_THRESHOLD}
+                    step={1}
+                    value={minQuality}
+                    onChange={(e) => setMinQuality(clampThreshold(Number(e.target.value)))}
                     disabled={busy || analyzing}
                     className="w-16 rounded-md border border-white/15 bg-black/50 px-2 py-1 text-white"
-                    aria-label="Nombre de moments"
+                    aria-label="Score minimum (hook et note)"
                   />
+                  <span className="text-xs text-white/40">%</span>
+
                   <Button
                     type="button"
                     onClick={analyze}
