@@ -1075,19 +1075,31 @@ function Home() {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-semibold text-white/40">
+                                V{moments.indexOf(m) + 1}
+                              </span>
                               <span
                                 className="rounded-md px-2 py-0.5 text-sm font-bold"
-                                style={{ backgroundColor: "#FFE500", color: "#050505" }}
+                                style={{
+                                  backgroundColor: m.belowThreshold ? "#FF4D4D" : "#FFE500",
+                                  color: m.belowThreshold ? "#fff" : "#050505",
+                                }}
                               >
                                 {m.score}
                               </span>
                               <span className="text-xs text-white/50">
                                 hook {m.hookScore} · audio {m.audioScore} · émotion {m.emotionScore}
                               </span>
+                              {m.belowThreshold && (
+                                <span className="text-xs font-semibold text-[#FF6B6B]">
+                                  sous le seuil {minQuality}% — relance l'analyse
+                                </span>
+                              )}
                               {m.reason && (
                                 <span className="text-xs text-[#39FF14]/80">{m.reason}</span>
                               )}
                             </div>
+
                             {m.hookText && (
                               <p className="mt-2 text-sm text-white">« {m.hookText} »</p>
                             )}
