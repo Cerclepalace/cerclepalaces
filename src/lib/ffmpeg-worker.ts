@@ -135,7 +135,10 @@ self.addEventListener("message", async (ev: MessageEvent<Incoming>) => {
           ...(msg.hasPromo && msg.hasLogo ? ["-i", "pause_logo.png"] : []),
           "-filter_complex", msg.filter,
           "-map", "[vencoded]",
-          ...(msg.hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
+          ...(msg.hasPromo
+            ? ["-map", "[aout]"]
+            : ["-map", "0:a?", "-af", "aresample=48000:async=1:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11"]),
+
           "-c:v", "libx264",
           "-threads", "2",
           "-preset", msg.preset ?? "ultrafast",

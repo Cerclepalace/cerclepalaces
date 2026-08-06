@@ -26,7 +26,6 @@ import {
   type ViralMoment,
 } from "@/lib/viral-detect";
 import { verifyNoOverlap } from "@/lib/overlap";
-import { runStallSelfTest } from "@/lib/render-selftest";
 import { isMobileDevice } from "@/lib/remote-render";
 import { Button } from "@/components/ui/button";
 
@@ -96,8 +95,10 @@ function Home() {
   const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
   const [runStartMs, setRunStartMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [maxConcurrent, setMaxConcurrent] = useState(4);
-  const [rpm, setRpm] = useState(30);
+  // Réglages techniques fixés en dur : l'utilisateur ne les voit plus.
+  const maxConcurrent = 2;
+  const rpm = 30;
+  const poolSize = 2;
   const [wordByWord, setWordByWord] = useState(true);
   const [brandedFrame, setBrandedFrame] = useState(false);
   const [promoEnabled, setPromoEnabled] = useState(true);
@@ -105,25 +106,15 @@ function Home() {
   const [promoVoice, setPromoVoice] = useState<File | null>(null);
   const [promoVoiceDur, setPromoVoiceDur] = useState(0);
   const [zoomPunch, setZoomPunch] = useState(false);
-  const [poolSize, setPoolSize] = useState(() => {
-    if (typeof navigator === "undefined") return 2;
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isMobile) return 1;
-    return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
-  });
   // Encodage serveur : imposé sur mobile (ffmpeg.wasm y sature la mémoire).
   const [serverRender, setServerRender] = useState(false);
-  const [stallTest, setStallTest] = useState<{ running: boolean; msg: string; ok: boolean | null }>({
-    running: false,
-    msg: "",
-    ok: null,
-  });
   const [mobileDevice, setMobileDevice] = useState(false);
   useEffect(() => {
     const m = isMobileDevice();
     setMobileDevice(m);
     if (m) setServerRender(true);
   }, []);
+
 
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -145,27 +136,8 @@ function Home() {
     return () => clearInterval(id);
   }, [busy]);
 
-  /** Auto-test du coupe-circuit : FFmpeg volontairement figé côté serveur. */
-  async function handleStallTest() {
-    setStallTest({ running: true, msg: "Simulation d'un FFmpeg figé (8 s)…", ok: null });
-    try {
-      const r = await runStallSelfTest(8000);
-      const lines = [
-        r.killed
-          ? `Coupe-circuit déclenché après ${(r.elapsedMs / 1000).toFixed(1)} s (timeout ${(r.timeoutMs / 1000).toFixed(0)} s)`
-          : `FFmpeg n'a pas été coupé (${r.detail || "aucune erreur remontée"})`,
-        r.slotReleased
-          ? `File libérée : ${r.activeRenders} rendu actif, ${r.queued} en attente`
-          : `File toujours occupée : ${r.activeRenders} rendu actif`,
-        r.queueFreeAfterMs >= 0
-          ? `Service de nouveau disponible en ${r.queueFreeAfterMs} ms`
-          : "Le service n'a pas confirmé sa disponibilité",
-      ];
-      setStallTest({ running: false, ok: r.ok, msg: lines.join(" · ") });
-    } catch (e) {
-      setStallTest({ running: false, ok: false, msg: (e as Error).message });
-    }
-  }
+
+
 
   const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
   const cobaltUrl = ytValid
@@ -1303,149 +1275,12 @@ function Home() {
                   Qualité maximale automatique
                 </span>
                 <div className="mt-1">
-                  {serverRender
-                    ? `Rendu serveur : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 21 · preset ultrafast · audio 160k — sources plus petites upscalées en lanczos.`
-                    : `Rendu local : ${MIN_EXPORT_WIDTH}×${MIN_EXPORT_HEIGHT} (2K) · CRF 20 · audio 192k — jamais en dessous du 2K.`}
+                  {MIN_EXPORT_WIDTH}×{MIN_EXPORT_HEIGHT} · H.264 CRF 19 · audio AAC 192 kbps
+                  normalisé à −14 LUFS. Rien à régler.
                 </div>
               </div>
             </div>
 
-
-            <div className="mb-4">
-              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
-                <span>Débit Gemini (quotas)</span>
-                <span className="text-[10px] normal-case tracking-normal text-white/40">
-                  évite les erreurs 429 sur grosses vidéos
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] uppercase tracking-widest text-white/50">
-                    Appels simultanés max
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={16}
-                    value={maxConcurrent}
-                    onChange={(e) => setMaxConcurrent(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
-                    disabled={busy}
-                    className="h-10 rounded-md border border-white/10 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#39FF14]"
-                  />
-                  <span className="text-[10px] text-white/40">1 – 16 (recommandé : 4)</span>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] uppercase tracking-widest text-white/50">
-                    Quota par minute (RPM)
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={300}
-                    value={rpm}
-                    onChange={(e) => setRpm(Math.max(1, Math.min(300, Number(e.target.value) || 1)))}
-                    disabled={busy}
-                    className="h-10 rounded-md border border-white/10 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#39FF14]"
-                  />
-                  <span className="text-[10px] text-white/40">requêtes / 60 s (recommandé : 30)</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
-                <span>Moteur d'encodage</span>
-                <span className="text-[10px] normal-case tracking-normal text-white/40">
-                  {mobileDevice ? "mobile détecté" : "ordinateur détecté"}
-                </span>
-              </div>
-              <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={serverRender}
-                    onChange={(e) => setServerRender(e.target.checked)}
-                    disabled={busy || mobileDevice}
-                    className="mt-1 accent-[#39FF14]"
-                  />
-                  <span className="text-xs text-white/70">
-                    Rendu sur le serveur ✦
-                    <span className="mt-1 block text-[10px] text-white/40">
-                      {mobileDevice
-                        ? "Activé d'office sur mobile : l'encodage part sur le serveur ffmpeg, ton téléphone ne fait plus que l'upload et le téléchargement."
-                        : "Décoché, l'encodage reste dans ton navigateur (gratuit). Coché, il part sur le serveur ffmpeg (plus rapide, aucune limite mémoire)."}
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs text-white/70">
-                    Test conversion ✦
-                    <span className="mt-1 block text-[10px] text-white/40">
-                      Simule un FFmpeg bloqué sur le serveur et vérifie que le coupe-circuit tue le
-                      processus et rend la file disponible.
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={handleStallTest}
-                    disabled={busy || stallTest.running}
-                    className="h-auto border border-[#39FF14]/40 py-2 text-xs"
-                  >
-                    {stallTest.running ? "Test en cours…" : "Test conversion"}
-                  </Button>
-                </div>
-                {stallTest.msg && (
-                  <div
-                    className="mt-3 rounded-lg border p-2 text-[11px]"
-                    style={{
-                      borderColor: stallTest.ok === false ? "rgba(255,80,80,0.4)" : "rgba(57,255,20,0.4)",
-                      color: stallTest.ok === false ? "#FF6B6B" : "#39FF14",
-                    }}
-                  >
-                    {stallTest.ok === null ? "" : stallTest.ok ? "✅ " : "⚠️ "}
-                    {stallTest.msg}
-                  </div>
-                )}
-              </div>
-
-              <div className="mb-2 flex items-center justify-between text-sm uppercase tracking-widest text-white/60">
-                <span>Pool de rendu FFmpeg</span>
-                <span className="text-[10px] normal-case tracking-normal text-white/40">
-                  {serverRender ? "rendus simultanés côté serveur" : "workers parallèles dans ton navigateur"}
-                </span>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] uppercase tracking-widest text-white/50">
-                    Nombre de workers ({poolSize})
-                  </span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={4}
-                    step={1}
-                    value={poolSize}
-                    onChange={(e) => setPoolSize(Number(e.target.value))}
-                    disabled={busy}
-                    className="accent-[#39FF14]"
-                  />
-                  <div className="flex justify-between text-[10px] text-white/40">
-                    <span>1 (mobile)</span>
-                    <span>2</span>
-                    <span>3</span>
-                    <span>4 (desktop)</span>
-                  </div>
-                  <span className="mt-1 text-[10px] text-white/40">
-                    Chaque worker charge ~30 Mo de WASM + la vidéo en mémoire. Baisse à 1–2 si ton navigateur plante.
-                  </span>
-                </label>
-              </div>
-            </div>
 
             <div className="mb-4">
               <div className="mb-2 text-sm uppercase tracking-widest text-white/60">Style Premium TikTokBoost</div>
@@ -1550,7 +1385,7 @@ function Home() {
                   boxShadow: busy ? "none" : "0 0 24px rgba(57,255,20,0.5)",
                 }}
               >
-                {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
+                {busy ? "Conversion en cours…" : "Convertir ma vidéo"}
               </Button>
               {busy ? (
                 <Button
@@ -1597,7 +1432,17 @@ function Home() {
             {(status || error) && (
               <div className="mt-4 rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm">
                 {error ? (
-                  <span className="text-red-400">⚠ {error}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-red-400">⚠ La conversion a échoué, réessaie.</span>
+                    <Button
+                      type="button"
+                      onClick={() => run(false)}
+                      disabled={!file || busy}
+                      className="h-9 bg-[#39FF14] text-xs font-bold uppercase tracking-widest text-black"
+                    >
+                      Réessayer
+                    </Button>
+                  </div>
                 ) : (
                   <span className="text-white/80">
                     {status}
@@ -1610,6 +1455,7 @@ function Home() {
                 )}
               </div>
             )}
+
 
             <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} serverRender={serverRender} />
           </section>

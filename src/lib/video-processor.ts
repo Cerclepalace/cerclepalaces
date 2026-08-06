@@ -109,26 +109,29 @@ type RenderProfile = {
   preset: string;
 };
 
-// Plancher de qualité imposé : 2K minimum sur le grand côté (2048 px) en 9:16.
-// Toute source plus petite est upscalée (scale=...:flags=lanczos en fin de
-// chaîne), aucune sortie ne descend sous ce seuil, local comme distant.
-export const MIN_EXPORT_WIDTH = 1152;
-export const MIN_EXPORT_HEIGHT = 2048;
+// Qualité fixe, non réglable : 1080x1920 H.264 CRF 19, audio AAC 192k
+// normalisé à -14 LUFS. Les sources plus petites sont upscalées en lanczos.
+export const MIN_EXPORT_WIDTH = 1080;
+export const MIN_EXPORT_HEIGHT = 1920;
+
+/** Normalisation loudness + resample : garantit la sync A/V après overlays. */
+export const AUDIO_NORM_FILTER =
+  "aresample=48000:async=1:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11";
 
 const LOCAL_PROFILE: RenderProfile = {
-  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 576, bgHeight: 1024,
-  blur: "16:2", fontSize: 107, outline: 6, shadow: 4, marginV: 288,
-  crf: "20", audioBitrate: "192k", fps: 30, preset: "veryfast",
+  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 540, bgHeight: 960,
+  blur: "16:2", fontSize: 100, outline: 6, shadow: 4, marginV: 270,
+  crf: "19", audioBitrate: "192k", fps: 30, preset: "veryfast",
 };
 
-// Distant : même résolution 2K (contrainte non négociable), mais preset
-// ultrafast + CRF légèrement plus haut et 1 thread pour rester sous la RAM
-// de la petite instance.
+// Distant : mêmes contraintes de qualité, preset plus rapide pour tenir la RAM
+// de la petite instance de rendu.
 const REMOTE_PROFILE: RenderProfile = {
-  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 576, bgHeight: 1024,
-  blur: "12:1", fontSize: 107, outline: 5, shadow: 4, marginV: 288,
-  crf: "21", audioBitrate: "160k", fps: 30, preset: "ultrafast",
+  width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 540, bgHeight: 960,
+  blur: "12:1", fontSize: 100, outline: 5, shadow: 4, marginV: 270,
+  crf: "19", audioBitrate: "192k", fps: 30, preset: "veryfast",
 };
+
 
 
 
@@ -486,12 +489,13 @@ function buildVideoFilter(
         `[1:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${ms}|${ms}[vo]`,
       );
       base.push(
-        `[acat][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`,
+        `[acat][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${AUDIO_NORM_FILTER}[aout]`,
       );
     } else {
-      base.push(`[acat]anull[aout]`);
+      base.push(`[acat]${AUDIO_NORM_FILTER}[aout]`);
     }
   }
+
   // Normalise systématiquement la géométrie avant libx264. Certains filtres
   // (notamment zoompan) propagent un SAR fractionnaire que x264 refuse parfois.
   base.push(

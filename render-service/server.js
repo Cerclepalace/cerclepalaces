@@ -22,15 +22,12 @@ const PORT = Number(process.env.PORT || 8080);
 const WORK_DIR = process.env.WORK_DIR || path.join(os.tmpdir(), "neoncut");
 const SECRET = process.env.RENDER_SERVICE_SECRET || "";
 const SESSION_TTL_MS = 1000 * 60 * 60; // 1 h
-// Une instance Railway standard ne tient pas deux encodages verticaux en RAM.
-// La file reste configurable, mais le réglage sûr doit être celui par défaut.
-const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 1));
-const FFMPEG_TIMEOUT_MS = Math.max(
-  60_000,
-  // Le serveur coupe avant le navigateur (180 s) afin de toujours libérer le
-  // créneau et de renvoyer une vraie erreur exploitable au client.
-  Number(process.env.FFMPEG_TIMEOUT_MS || 170_000),
-);
+// Valeurs fixes et sûres : plus aucun réglage exposé à l'utilisateur.
+const MAX_RENDER_CONCURRENCY = Math.max(1, Number(process.env.MAX_RENDER_CONCURRENCY || 2));
+// Coupe-circuit automatique : tout job ffmpeg dépassant 90 s est tué et son
+// créneau immédiatement rendu au job suivant.
+const FFMPEG_TIMEOUT_MS = Math.max(10_000, Number(process.env.FFMPEG_TIMEOUT_MS || 90_000));
+
 let activeRenders = 0;
 const renderQueue = [];
 
@@ -363,7 +360,10 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
         ...(hasPromo && hasLogo ? ["-i", "pause_logo.png"] : []),
         "-filter_complex", localFilter,
         "-map", "[vencoded]",
-        ...(hasPromo ? ["-map", "[aout]"] : ["-map", "0:a?"]),
+        ...(hasPromo
+          ? ["-map", "[aout]"]
+          : ["-map", "0:a?", "-af", "aresample=48000:async=1:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11"]),
+
         "-c:v", "libx264",
         "-threads", "1",
         "-preset", String(preset),
