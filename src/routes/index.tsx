@@ -137,27 +137,8 @@ function Home() {
     return () => clearInterval(id);
   }, [busy]);
 
-  /** Auto-test du coupe-circuit : FFmpeg volontairement figé côté serveur. */
-  async function handleStallTest() {
-    setStallTest({ running: true, msg: "Simulation d'un FFmpeg figé (8 s)…", ok: null });
-    try {
-      const r = await runStallSelfTest(8000);
-      const lines = [
-        r.killed
-          ? `Coupe-circuit déclenché après ${(r.elapsedMs / 1000).toFixed(1)} s (timeout ${(r.timeoutMs / 1000).toFixed(0)} s)`
-          : `FFmpeg n'a pas été coupé (${r.detail || "aucune erreur remontée"})`,
-        r.slotReleased
-          ? `File libérée : ${r.activeRenders} rendu actif, ${r.queued} en attente`
-          : `File toujours occupée : ${r.activeRenders} rendu actif`,
-        r.queueFreeAfterMs >= 0
-          ? `Service de nouveau disponible en ${r.queueFreeAfterMs} ms`
-          : "Le service n'a pas confirmé sa disponibilité",
-      ];
-      setStallTest({ running: false, ok: r.ok, msg: lines.join(" · ") });
-    } catch (e) {
-      setStallTest({ running: false, ok: false, msg: (e as Error).message });
-    }
-  }
+
+
 
   const ytValid = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
   const cobaltUrl = ytValid
