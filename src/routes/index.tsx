@@ -26,7 +26,6 @@ import {
   type ViralMoment,
 } from "@/lib/viral-detect";
 import { verifyNoOverlap } from "@/lib/overlap";
-import { runStallSelfTest } from "@/lib/render-selftest";
 import { isMobileDevice } from "@/lib/remote-render";
 import { Button } from "@/components/ui/button";
 
