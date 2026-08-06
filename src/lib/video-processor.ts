@@ -489,12 +489,13 @@ function buildVideoFilter(
         `[1:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${ms}|${ms}[vo]`,
       );
       base.push(
-        `[acat][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`,
+        `[acat][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${AUDIO_NORM_FILTER}[aout]`,
       );
     } else {
-      base.push(`[acat]anull[aout]`);
+      base.push(`[acat]${AUDIO_NORM_FILTER}[aout]`);
     }
   }
+
   // Normalise systématiquement la géométrie avant libx264. Certains filtres
   // (notamment zoompan) propagent un SAR fractionnaire que x264 refuse parfois.
   base.push(
