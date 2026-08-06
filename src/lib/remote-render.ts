@@ -180,7 +180,9 @@ export class RemoteRenderPool {
       // Une requête Railway ne doit jamais immobiliser tout le pipeline. Un
       // rendu de short qui dépasse 3 minutes est considéré bloqué et passe au
       // fallback suivant (sans promo, puis sans sous-titres).
-      const timeout = window.setTimeout(() => controller.abort(), isExtract ? 90_000 : 180_000);
+      // Le serveur coupe à 90 s : on laisse une petite marge réseau.
+      const timeout = window.setTimeout(() => controller.abort(), isExtract ? 60_000 : 100_000);
+
       try {
         return await fetch(
           `${this.baseUrl}/session/${this.sessionId}/${isExtract ? "extract" : "render"}`,
