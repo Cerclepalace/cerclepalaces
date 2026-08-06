@@ -1385,7 +1385,7 @@ function Home() {
                   boxShadow: busy ? "none" : "0 0 24px rgba(57,255,20,0.5)",
                 }}
               >
-                {busy ? "Traitement en cours…" : `Générer ${estimatedShorts} short${estimatedShorts > 1 ? "s" : ""}`}
+                {busy ? "Conversion en cours…" : "Convertir ma vidéo"}
               </Button>
               {busy ? (
                 <Button
