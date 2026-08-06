@@ -1432,7 +1432,17 @@ function Home() {
             {(status || error) && (
               <div className="mt-4 rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm">
                 {error ? (
-                  <span className="text-red-400">⚠ {error}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-red-400">⚠ La conversion a échoué, réessaie.</span>
+                    <Button
+                      type="button"
+                      onClick={() => run(false)}
+                      disabled={!file || busy}
+                      className="h-9 bg-[#39FF14] text-xs font-bold uppercase tracking-widest text-black"
+                    >
+                      Réessayer
+                    </Button>
+                  </div>
                 ) : (
                   <span className="text-white/80">
                     {status}
@@ -1445,6 +1455,7 @@ function Home() {
                 )}
               </div>
             )}
+
 
             <Dashboard metrics={metrics} runStartMs={runStartMs} nowMs={nowMs} busy={busy} doneCount={shorts.length} onRetry={handleRetry} maxManualRetries={MAX_MANUAL_RETRIES} serverRender={serverRender} />
           </section>
