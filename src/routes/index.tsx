@@ -96,8 +96,10 @@ function Home() {
   const [metrics, setMetrics] = useState<Record<number, SegmentMetric>>({});
   const [runStartMs, setRunStartMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [maxConcurrent, setMaxConcurrent] = useState(4);
-  const [rpm, setRpm] = useState(30);
+  // Réglages techniques fixés en dur : l'utilisateur ne les voit plus.
+  const maxConcurrent = 2;
+  const rpm = 30;
+  const poolSize = 2;
   const [wordByWord, setWordByWord] = useState(true);
   const [brandedFrame, setBrandedFrame] = useState(false);
   const [promoEnabled, setPromoEnabled] = useState(true);
@@ -105,25 +107,15 @@ function Home() {
   const [promoVoice, setPromoVoice] = useState<File | null>(null);
   const [promoVoiceDur, setPromoVoiceDur] = useState(0);
   const [zoomPunch, setZoomPunch] = useState(false);
-  const [poolSize, setPoolSize] = useState(() => {
-    if (typeof navigator === "undefined") return 2;
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isMobile) return 1;
-    return Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)));
-  });
   // Encodage serveur : imposé sur mobile (ffmpeg.wasm y sature la mémoire).
   const [serverRender, setServerRender] = useState(false);
-  const [stallTest, setStallTest] = useState<{ running: boolean; msg: string; ok: boolean | null }>({
-    running: false,
-    msg: "",
-    ok: null,
-  });
   const [mobileDevice, setMobileDevice] = useState(false);
   useEffect(() => {
     const m = isMobileDevice();
     setMobileDevice(m);
     if (m) setServerRender(true);
   }, []);
+
 
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
