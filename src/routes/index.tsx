@@ -347,51 +347,77 @@ function Home() {
           const end = Math.min(duration || base + 8, base + 8);
           custom = [{ start: base, end }];
         }
-        const out = await processVideo({
-          file,
-          segmentSec,
-          style: { fontKey, textColor, outlineColor, position },
-          trim: { start: trimStart, end: trimEnd || duration },
-          customSegments: custom,
-          throttle: { maxConcurrent, rpm },
-          poolSize,
-          remote: serverRender,
+        // Retry automatique : jusqu'à 2 nouvelles tentatives avant d'afficher
+        // une erreur à l'utilisateur (coupure réseau, worker qui tombe, 502…).
+        const MAX_ATTEMPTS = 3;
+        let out: Awaited<ReturnType<typeof processVideo>> | undefined;
+        let lastErr: unknown;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          if (controller.signal.aborted) break;
+          if (attempt > 1) {
+            setShorts([]);
+            setMetrics({});
+            setProgress(null);
+            setStatus(`Nouvelle tentative ${attempt}/${MAX_ATTEMPTS}…`);
+            await new Promise((r) => setTimeout(r, 1200 * (attempt - 1)));
+            if (controller.signal.aborted) break;
+          }
+          try {
+            out = await processVideo({
+              file,
+              segmentSec,
+              style: { fontKey, textColor, outlineColor, position },
+              trim: { start: trimStart, end: trimEnd || duration },
+              customSegments: custom,
+              throttle: { maxConcurrent, rpm },
+              poolSize,
+              remote: serverRender,
 
-          wordByWord,
-          brandedFrame,
-          zoomPunch,
-          promoPause: {
-            enabled: promoEnabled && !!promoVoice,
-            atSec: promoAt,
-            durationSec: (promoVoiceDur || 4) + 1.4,
-            voice: promoVoice,
-          },
+              wordByWord,
+              brandedFrame,
+              zoomPunch,
+              promoPause: {
+                enabled: promoEnabled && !!promoVoice,
+                atSec: promoAt,
+                durationSec: (promoVoiceDur || 4) + 1.4,
+                voice: promoVoice,
+              },
 
-          signal: controller.signal,
-          onProgress: (info) => {
-            setStatus(info.phase);
-            if (info.segmentIndex !== undefined && info.totalSegments) {
-              setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
-            }
-          },
-          onShort: (short) => {
-            setShorts((current) => [...current, short]);
-          },
-          onMetric: (m) => {
-            setMetrics((prev) => {
-              const existing = prev[m.index];
-              return { ...prev, [m.index]: { ...(existing ?? {}), ...m } };
+              signal: controller.signal,
+              onProgress: (info) => {
+                setStatus(info.phase);
+                if (info.segmentIndex !== undefined && info.totalSegments) {
+                  setProgress({ i: info.segmentIndex + 1, total: info.totalSegments });
+                }
+              },
+              onShort: (short) => {
+                setShorts((current) => [...current, short]);
+              },
+              onMetric: (m) => {
+                setMetrics((prev) => {
+                  const existing = prev[m.index];
+                  return { ...prev, [m.index]: { ...(existing ?? {}), ...m } };
+                });
+              },
+              onLog: (msg) => {
+                if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
+              },
             });
-          },
-          onLog: (msg) => {
-            if (msg && !msg.startsWith("frame=")) console.debug("[ffmpeg]", msg);
-          },
-        });
+            lastErr = undefined;
+            break;
+          } catch (e) {
+            lastErr = e;
+            if ((e as Error).name === "AbortedError" || controller.signal.aborted) break;
+          }
+        }
+        if (lastErr) throw lastErr;
+        if (!out) throw new Error("Traitement interrompu");
         setStatus(
           previewOnly
             ? "Aperçu prêt — valide le style avant le rendu complet"
             : `${out.length} short${out.length > 1 ? "s" : ""} prêt${out.length > 1 ? "s" : ""}`,
         );
+
       } catch (e) {
         if ((e as Error).name === "AbortedError" || controller.signal.aborted) {
           setStatus("Traitement annulé");
