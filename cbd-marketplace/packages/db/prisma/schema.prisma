@@ -1,0 +1,669 @@
+// Schéma de données — plateforme de livraison CBD.
+//
+// Deux principes structurent tout ce fichier :
+//
+//  1. `Inventory` est le pivot du catalogue, pas `Product`. Un produit existe une
+//     fois au référentiel ; son prix, son stock et sa mise en vente appartiennent
+//     à une `MerchantLocation` précise. La plateforme ne doit jamais présenter un
+//     produit comme disponible partout parce qu'il existe au catalogue global.
+//
+//  2. La conformité est indépendante du commerce. Un produit peut être en stock,
+//     prixé et listé tout en étant interdit à la vente. Seul `APPROVED` autorise
+//     la commande — la règle est appliquée dans @cbd/domain (`isOrderable`).
+//
+// Les montants sont des entiers en centimes. Aucun flottant sur de l'argent.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identité et rôles
+// ---------------------------------------------------------------------------
+
+enum Role {
+  customer
+  merchant_owner
+  merchant_staff
+  courier
+  support_agent
+  admin
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String?
+  emailVerifiedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  // Suppression RGPD : anonymisation plutôt que suppression physique, pour ne
+  // pas casser l'historique comptable des commandes déjà livrées.
+  anonymizedAt DateTime?
+
+  roles           UserRole[]
+  customerProfile CustomerProfile?
+  merchantStaff   MerchantStaff[]
+  courier         Courier?
+  sessions        Session[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  supportTickets  SupportTicket[]
+
+  @@index([anonymizedAt])
+}
+
+// Un compte peut porter plusieurs rôles (un commerçant reste un client).
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  role   Role
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  ipHash     String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model CustomerProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  firstName String?
+  lastName  String?
+  createdAt DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addresses Address[]
+  carts     Cart[]
+  orders    Order[]
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  customerId String
+  label      String?
+  line1      String
+  line2      String?
+  postalCode String
+  city       String
+  country    String  @default("FR")
+  lat        Float?
+  lng        Float?
+  // Instructions de livraison : donnée libre, à ne pas exposer au-delà du
+  // coursier assigné et pour la durée de la course seulement.
+  notes      String?
+  archivedAt DateTime?
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@index([customerId])
+}
+
+// ---------------------------------------------------------------------------
+// Commerçants
+// ---------------------------------------------------------------------------
+
+enum MerchantStatus {
+  PENDING_VALIDATION
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+model Merchant {
+  id           String         @id @default(cuid())
+  legalName    String
+  tradeName    String
+  // Identifiants légaux : nécessaires au KYB du PSP, dont les exigences exactes
+  // restent à confirmer (docs/TO_VERIFY.md, décision 09).
+  registrationNumber String?
+  vatNumber          String?
+  status       MerchantStatus @default(PENDING_VALIDATION)
+  createdAt    DateTime       @default(now())
+  validatedAt  DateTime?
+
+  locations MerchantLocation[]
+  staff     MerchantStaff[]
+  products  Product[]
+}
+
+model MerchantLocation {
+  id         String   @id @default(cuid())
+  merchantId String
+  // Slug imprimé sur le support physique du QR : immuable une fois distribué.
+  slug       String   @unique
+  name       String
+  line1      String
+  line2      String?
+  postalCode String
+  city       String
+  country    String   @default("FR")
+  lat        Float
+  lng        Float
+  phone      String?
+  isOpen     Boolean  @default(false)
+  zoneId     String?
+  createdAt  DateTime @default(now())
+
+  merchant  Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  zone      DeliveryZone?  @relation(fields: [zoneId], references: [id])
+  hours     OpeningHours[]
+  inventory Inventory[]
+  orders    Order[]
+  qrCodes   QrCode[]
+  staff     MerchantStaff[]
+
+  @@index([merchantId])
+  @@index([zoneId])
+}
+
+model OpeningHours {
+  id         String @id @default(cuid())
+  locationId String
+  // 0 = dimanche … 6 = samedi
+  weekday    Int
+  opensAt    String // "09:30"
+  closesAt   String // "19:00"
+
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId])
+}
+
+model MerchantStaff {
+  id         String   @id @default(cuid())
+  userId     String
+  merchantId String
+  // Null pour un merchant_owner : il couvre toutes les locations du Merchant.
+  locationId String?
+  role       Role
+  createdAt  DateTime @default(now())
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  location MerchantLocation? @relation(fields: [locationId], references: [id])
+
+  @@unique([userId, merchantId, locationId])
+  @@index([merchantId])
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue, stock et conformité
+// ---------------------------------------------------------------------------
+
+model ProductCategory {
+  id       String  @id @default(cuid())
+  slug     String  @unique
+  name     String
+  parentId String?
+
+  parent   ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children ProductCategory[] @relation("CategoryTree")
+  products Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  merchantId  String?
+  categoryId  String?
+  name        String
+  description String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+
+  merchant   Merchant?          @relation(fields: [merchantId], references: [id])
+  category   ProductCategory?   @relation(fields: [categoryId], references: [id])
+  compliance ProductCompliance?
+  inventory  Inventory[]
+  orderItems OrderItem[]
+
+  @@index([merchantId])
+  @@index([categoryId])
+}
+
+enum ComplianceStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+  EXPIRED
+}
+
+// Aucun seuil réglementaire n'est codé en dur ici : les taux sont enregistrés
+// tels que déclarés et certifiés, et les seuils applicables restent à confirmer
+// auprès de sources officielles (docs/TO_VERIFY.md, décision 10).
+model ProductCompliance {
+  id          String           @id @default(cuid())
+  productId   String           @unique
+  status      ComplianceStatus @default(PENDING_REVIEW)
+  thcContent  Decimal?         @db.Decimal(6, 4)
+  cbdContent  Decimal?         @db.Decimal(6, 4)
+  composition String?
+  supplier    String?
+  batchNumber String?
+  verifiedAt  DateTime?
+  verifiedBy  String?
+  expiresAt   DateTime?
+  reviewNotes String?
+
+  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  documents ComplianceDocument[]
+
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model ComplianceDocument {
+  id           String   @id @default(cuid())
+  complianceId String
+  kind         String // certificat d'analyse, fiche fournisseur, etc.
+  fileUrl      String
+  uploadedAt   DateTime @default(now())
+
+  compliance ProductCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+
+  @@index([complianceId])
+}
+
+// Le pivot du catalogue : prix et stock par point de vente.
+model Inventory {
+  id         String   @id @default(cuid())
+  locationId String
+  productId  String
+  priceCents Int
+  stock      Int      @default(0)
+  // Le commerçant peut retirer un produit de la vente sans toucher au stock.
+  isListed   Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, productId])
+  @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// Panier et commandes
+// ---------------------------------------------------------------------------
+
+model Cart {
+  id         String   @id @default(cuid())
+  customerId String
+  locationId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime?
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    CartItem[]
+
+  @@index([customerId])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, productId])
+}
+
+enum OrderStatus {
+  CART
+  PENDING_PAYMENT
+  PAID
+  ACCEPTED
+  PREPARING
+  READY_FOR_PICKUP
+  COURIER_ASSIGNED
+  PICKED_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  PAYMENT_FAILED
+  MERCHANT_REJECTED
+  DELIVERY_FAILED
+  CUSTOMER_UNAVAILABLE
+  INCIDENT
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  reference  String      @unique
+  customerId String
+  locationId String
+  addressId  String?
+  status     OrderStatus @default(CART)
+
+  // Répartition figée à la validation. Recalculer a posteriori donnerait un
+  // montant différent si les prix ou la config de revenus ont changé depuis.
+  productsSubtotalCents Int
+  deliveryFeeCents      Int
+  customerTotalCents    Int
+  merchantPayoutCents   Int
+  courierPayoutCents    Int
+  platformNetCents      Int
+
+  placedAt    DateTime?
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer     CustomerProfile      @relation(fields: [customerId], references: [id])
+  location     MerchantLocation     @relation(fields: [locationId], references: [id])
+  address      Address?             @relation(fields: [addressId], references: [id])
+  items        OrderItem[]
+  statusEvents OrderStatusEvent[]
+  delivery     Delivery?
+  payment      Payment?
+  incidents    Incident[]
+
+  @@index([customerId])
+  @@index([locationId])
+  @@index([status])
+}
+
+// Chaque ligne conserve le nom et le prix au moment de la commande : le
+// catalogue peut changer, la facture ne doit pas bouger.
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String
+  productId      String
+  nameSnapshot   String
+  unitPriceCents Int
+  quantity       Int
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// Journal des transitions : reconstitue l'historique complet d'une commande,
+// et sert de preuve en cas de litige avec un shop ou un coursier.
+model OrderStatusEvent {
+  id         String      @id @default(cuid())
+  orderId    String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  actorRole  String
+  actorId    String?
+  reason     String?
+  createdAt  DateTime    @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Livraison
+// ---------------------------------------------------------------------------
+
+enum CourierVerification {
+  APPLICATION_SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum CourierAvailability {
+  OFFLINE
+  AVAILABLE
+  ON_MISSION
+}
+
+// Le statut juridique du coursier (indépendant / salarié / autre) n'est pas
+// arrêté — docs/TO_VERIFY.md, décision 01. Aucun champ ne le présuppose ici :
+// `legalStatus` reste libre tant que la décision n'est pas prise.
+model Courier {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  firstName    String
+  lastName     String
+  phone        String
+  zoneId       String?
+  verification CourierVerification @default(APPLICATION_SUBMITTED)
+  availability CourierAvailability @default(OFFLINE)
+  vehicleType  String?
+  legalStatus  String?
+  approvedAt   DateTime?
+  createdAt    DateTime            @default(now())
+
+  // Dernière position connue : écrasée à chaque mise à jour, jamais historisée
+  // hors mission (minimisation RGPD — docs/RGPD.md).
+  lastLat      Float?
+  lastLng      Float?
+  lastSeenAt   DateTime?
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  zone        DeliveryZone? @relation(fields: [zoneId], references: [id])
+  assignments DeliveryAssignment[]
+
+  @@index([zoneId, availability])
+  @@index([verification])
+}
+
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  city      String
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  locations MerchantLocation[]
+  couriers  Courier[]
+}
+
+model Delivery {
+  id                 String    @id @default(cuid())
+  orderId            String    @unique
+  assignedCourierId  String?
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  proofType          String? // photo, signature, code de confirmation
+  proofUrl           String?
+  distanceMeters     Int?
+  createdAt          DateTime  @default(now())
+
+  order       Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignments DeliveryAssignment[]
+}
+
+// Une mission peut être proposée à plusieurs coursiers avant d'être acceptée :
+// une ligne par proposition, pour mesurer les refus et les délais de dispatch.
+model DeliveryAssignment {
+  id         String    @id @default(cuid())
+  deliveryId String
+  courierId  String
+  offeredAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  expiredAt  DateTime?
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  courier  Courier  @relation(fields: [courierId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId])
+  @@index([courierId, offeredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Paiement
+// ---------------------------------------------------------------------------
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+// Le PSP et le modèle de flux (qui encaisse, qui reverse) ne sont pas arrêtés —
+// docs/TO_VERIFY.md, décisions 05 et 09. Les identifiants externes restent donc
+// des chaînes libres, sans dépendance à un fournisseur particulier.
+model Payment {
+  id             String        @id @default(cuid())
+  orderId        String        @unique
+  status         PaymentStatus @default(PENDING)
+  provider       String?
+  providerRef    String?
+  amountCents    Int
+  pspFeeCents    Int?
+  refundedCents  Int           @default(0)
+  capturedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Acquisition par QR
+// ---------------------------------------------------------------------------
+
+enum QrStatus {
+  ACTIVE
+  DISABLED
+}
+
+model QrCode {
+  id         String   @id @default(cuid())
+  locationId String
+  code       String   @unique
+  status     QrStatus @default(ACTIVE)
+  medium     String? // carte, sticker, chevalet, vitrine…
+  createdAt  DateTime @default(now())
+  disabledAt DateTime?
+
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  scans    QrScanEvent[]
+
+  @@index([locationId])
+}
+
+// Une ligne par étape du tunnel scan → commande. `sessionKey` relie les
+// événements d'un même visiteur sans exiger de compte : c'est un identifiant
+// technique éphémère, pas un profil publicitaire.
+model QrScanEvent {
+  id         String   @id @default(cuid())
+  qrCodeId   String?
+  locationId String?
+  eventType  String // qr_scan, shop_view, product_view, add_to_cart, checkout_started, order_completed
+  sessionKey String
+  orderId    String?
+  createdAt  DateTime @default(now())
+
+  qrCode QrCode? @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
+
+  @@index([qrCodeId, createdAt])
+  @@index([sessionKey])
+  @@index([eventType, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Support et traçabilité
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  channel   String // push, email, sms, in_app
+  template  String
+  payload   Json?
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+model Incident {
+  id         String         @id @default(cuid())
+  orderId    String?
+  kind       String // retard, produit manquant, accident coursier, litige…
+  status     IncidentStatus @default(OPEN)
+  severity   String         @default("normal")
+  reportedBy String?
+  summary    String
+  resolution String?
+  createdAt  DateTime       @default(now())
+  resolvedAt DateTime?
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model SupportTicket {
+  id        String   @id @default(cuid())
+  userId    String
+  subject   String
+  body      String
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// Journal des actions sensibles : validation d'un shop ou d'un coursier,
+// changement de statut de conformité, remboursement, accès à des données
+// personnelles depuis le back-office.
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  actorRole    String
+  action       String
+  targetType   String
+  targetId     String
+  metadata     Json?
+  ipHash       String?
+  createdAt    DateTime @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}

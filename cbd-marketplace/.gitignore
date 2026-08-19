@@ -1,0 +1,14 @@
+node_modules
+dist
+.next
+.output
+.turbo
+coverage
+*.log
+
+# Secrets : jamais commités.
+.env
+.env.*
+!.env.example
+
+.DS_Store
