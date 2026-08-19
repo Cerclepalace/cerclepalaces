@@ -25,7 +25,7 @@ COMMANDE → SHOP → COMMANDE PRÊTE → DISPATCH → COURSIER → CLIENT
 ## Structure du dépôt
 
 ```
-cbd-marketplace/
+.
 ├── apps/
 │   ├── client/     interface client (recherche, commande, suivi)
 │   ├── shop/       back-office commerçant
