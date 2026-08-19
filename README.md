@@ -22,19 +22,20 @@ SHOP PHYSIQUE → QR CODE → CLIENT → COMMANDE → SHOP → COURSIER → LIVR
 
 Phase 1 en cours — **socle métier**. Ce qui existe aujourd'hui :
 
-- `packages/domain` — les règles métier, testées (63 tests, typecheck propre)
+- `packages/domain` — les règles métier, testées
+- `packages/config` — validation de la configuration, qui refuse de démarrer si elle est incomplète
 - `packages/db` — schéma Prisma complet, validé
-- `docs/` — architecture, modèle économique, conformité, RGPD, décisions ouvertes
+- `apps/api` — authentification, contrôle d'accès, service de commande
+- `docs/` — architecture, modèle économique, conformité, RGPD, propriété intellectuelle, décisions ouvertes
 
-Les applications (`apps/*`) sont des emplacements réservés. Elles seront
-construites sur ce socle.
+**140 tests, typecheck propre.** Les interfaces (`apps/client`, `shop`,
+`courier`, `admin`) restent des emplacements réservés.
 
 ## Démarrer
 
 ```sh
-cd packages/domain
 npm install
-npm test          # 63 tests
+npm test          # 140 tests, tous les paquets
 npm run typecheck
 ```
 
@@ -86,4 +87,5 @@ attend ces décisions.
 - [Modèle économique](docs/MODELE-ECONOMIQUE.md)
 - [Conformité produit](docs/CONFORMITE-CBD.md)
 - [Données personnelles](docs/RGPD.md)
+- [Propriété intellectuelle](docs/PROPRIETE-INTELLECTUELLE.md)
 - [Décisions ouvertes](docs/TO_VERIFY.md)

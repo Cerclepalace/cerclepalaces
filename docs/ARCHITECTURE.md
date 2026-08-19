@@ -33,10 +33,10 @@ COMMANDE → SHOP → COMMANDE PRÊTE → DISPATCH → COURSIER → CLIENT
 │   ├── admin/      back-office plateforme
 │   └── api/        API centrale — seul écrivain de la base
 ├── packages/
-│   ├── domain/     règles métier pures (state machines, RBAC, répartition)
+│   ├── domain/     règles métier pures (state machines, rôles, répartition)
 │   ├── db/         schéma Prisma et migrations
 │   ├── ui/         design system partagé
-│   └── config/     configuration TypeScript / lint partagée
+│   └── config/     validation de la configuration d'exécution
 └── docs/
 ```
 
@@ -56,7 +56,7 @@ Les quatre machines qu'il contient :
 | `delivery/` | éligibilité et classement des coursiers pour le dispatch |
 | `pricing/` | répartition financière d'une commande |
 
-63 tests couvrent ces règles, dont l'intégrité structurelle des tables de
+Les tests couvrent ces règles, dont l'intégrité structurelle des tables de
 transitions (pas de cul-de-sac, pas d'état inatteignable, pas de sortie depuis
 un état terminal).
 
@@ -124,3 +124,4 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 - `MODELE-ECONOMIQUE.md` — répartition financière, non tranchée
 - `CONFORMITE-CBD.md` — architecture de conformité produit
 - `RGPD.md` — données personnelles collectées et leur usage
+- `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
