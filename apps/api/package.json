@@ -10,7 +10,8 @@
   "dependencies": {
     "@cbd/config": "*",
     "@cbd/domain": "*",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@cbd/db": "*"
   },
   "devDependencies": {
     "@types/node": "^22.16.5",

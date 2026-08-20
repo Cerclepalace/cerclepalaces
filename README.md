@@ -24,8 +24,8 @@ Phase 1 en cours — **socle métier**. Ce qui existe aujourd'hui :
 
 - `packages/domain` — les règles métier, testées
 - `packages/config` — validation de la configuration, qui refuse de démarrer si elle est incomplète
-- `packages/db` — schéma Prisma complet, validé
-- `apps/api` — authentification, contrôle d'accès, services commande et livraison, contrat HTTP
+- `packages/db` — schéma Prisma et client partagé
+- `apps/api` — authentification, contrôle d'accès, services commande et livraison, adaptateurs Prisma, contrat HTTP
 - `docs/` — architecture, réseau de livraison, modèle économique, conformité, RGPD, propriété intellectuelle, décisions ouvertes
 
 **310 tests, typecheck propre.** Les interfaces (`apps/client`, `shop`,

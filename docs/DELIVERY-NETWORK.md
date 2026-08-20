@@ -184,6 +184,30 @@ documentaire, trois choix :
 | `OrderStatusEvent`, `DeliveryStatusEvent` | Atteints via leur agrégat |
 | `Zone` | Référentiel partagé |
 
+### Le garde-fou statique
+
+Le `TenantScope` nominal empêche d'**oublier le paramètre**. Il n'empêche pas
+d'oublier de **s'en servir** :
+
+```ts
+findById(scope, id) {
+  return db.delivery.findFirst({ where: { id } });   // compile, et fuit.
+}
+```
+
+Aucun type ne rattrape ça. `apps/api/src/tenancy-guard.test.ts` relit donc le
+source des adaptateurs Prisma, extrait chaque appel, et échoue si l'un perd son
+filtre `merchantId` — direct ou par relation.
+
+Les exceptions sont nommées une par une, avec justification écrite, et le test
+échoue aussi si une justification est trop courte pour en être une, ou si une
+exception ne correspond plus à aucun appel (reste de refactor qui couvrirait
+silencieusement un futur appel du même nom).
+
+Le vérificateur est lui-même vérifié : un test lui soumet un source fabriqué
+qui fuit, et exige qu'il le détecte. Contrôlé par mutation — en retirant le
+filtre d'un `findById` réel, le garde-fou échoue.
+
 ### Product vs Inventory — décision documentée
 
 L'invariant existant est conservé : **`Inventory` est le pivot du catalogue**.
