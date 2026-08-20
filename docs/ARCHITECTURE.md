@@ -29,7 +29,7 @@ COMMANDE → SHOP → COMMANDE PRÊTE → DISPATCH → COURSIER → CLIENT
 ├── apps/
 │   ├── client/     interface client (recherche, commande, suivi)
 │   ├── shop/       back-office commerçant
-│   ├── courier/    application coursier, mobile-first
+│   ├── driver/     application coursier, mobile-first
 │   ├── admin/      back-office plateforme
 │   └── api/        API centrale — seul écrivain de la base
 ├── packages/
@@ -53,7 +53,9 @@ Les quatre machines qu'il contient :
 |--------|------|
 | `order/` | états et transitions de commande |
 | `compliance/` | statut réglementaire produit, règle de mise en vente |
-| `delivery/` | éligibilité et classement des coursiers pour le dispatch |
+| `delivery/` | états de livraison, propositions, disponibilité, dispatch, preuve, payout |
+| `tenancy/` | `TenantScope` nominal, frontière de multi-tenancy |
+| `ports/` | interfaces PaymentProvider et DeliveryProvider, implémentations Noop |
 | `pricing/` | répartition financière d'une commande |
 
 Les tests couvrent ces règles, dont l'intégrité structurelle des tables de
@@ -110,7 +112,7 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
   source de vérité d'une autorisation.
 - Le rôle seul n'autorise rien : presque chaque endpoint vérifie aussi
   l'appartenance de la ressource (un `merchant_staff` n'agit que sur sa
-  `MerchantLocation`, un `courier` que sur ses propres missions).
+  `MerchantLocation`, un `driver` que sur ses propres missions).
 - Rate limiting sur authentification, checkout et scan QR.
 - Secrets uniquement en variables d'environnement, jamais commités, jamais
   exposés au front.
@@ -120,8 +122,9 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 
 ## Documents liés
 
-- `TO_VERIFY.md` — les 13 décisions non arrêtées
+- `TO_VERIFY.md` — les 16 décisions non arrêtées
 - `MODELE-ECONOMIQUE.md` — répartition financière, non tranchée
 - `CONFORMITE-CBD.md` — architecture de conformité produit
+- `DELIVERY-NETWORK.md` — réseau de livraison, dispatch, multi-tenancy
 - `RGPD.md` — données personnelles collectées et leur usage
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet

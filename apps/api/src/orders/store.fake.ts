@@ -7,6 +7,8 @@
  * production.
  */
 
+import { assertBelongsToTenant, type AdminScope, type TenantScope } from "@cbd/domain";
+
 import type {
   AuditEntryInput,
   OrderRepository,
@@ -21,7 +23,7 @@ export class FakeOrderStore implements TransactionalStore {
   auditEntries: AuditEntryInput[] = [];
 
   /** Simule une écriture concurrente : incrémente la version avant l'update. */
-  onBeforeUpdate?: (orderId: string) => void;
+  onBeforeUpdate: ((orderId: string) => void) | undefined;
 
   constructor(orders: readonly OrderSnapshot[] = []) {
     for (const order of orders) this.orders.set(order.id, order);
@@ -51,14 +53,22 @@ export class FakeOrderStore implements TransactionalStore {
     }
   }
 
+  /** Équivalent d'un `where merchantId` : hors scope, la commande n'existe pas. */
+  private scoped(scope: TenantScope, orderId: string): OrderSnapshot | null {
+    const order = this.orders.get(orderId);
+    if (!order) return null;
+    if (order.merchantId !== scope.merchantId) return null;
+    return order;
+  }
+
   private repository(): OrderRepository {
     return {
-      findById: async (orderId) => this.orders.get(orderId) ?? null,
+      findById: async (scope, orderId) => this.scoped(scope, orderId),
 
-      updateStatus: async ({ orderId, expectedVersion, toStatus }) => {
+      updateStatus: async (scope, { orderId, expectedVersion, toStatus }) => {
         this.onBeforeUpdate?.(orderId);
 
-        const order = this.orders.get(orderId);
+        const order = this.scoped(scope, orderId);
         if (!order) return false;
         if (order.version !== expectedVersion) return false;
 
@@ -66,13 +76,22 @@ export class FakeOrderStore implements TransactionalStore {
         return true;
       },
 
-      appendStatusEvent: async (input) => {
+      appendStatusEvent: async (scope, input) => {
+        if (!this.scoped(scope, input.orderId)) {
+          throw new Error("Écriture d'historique hors scope tenant.");
+        }
         this.statusEvents.push(input);
       },
 
-      appendAuditEntry: async (input) => {
+      appendAuditEntry: async (scope, input) => {
+        if (input.targetType === "Order") {
+          const order = this.orders.get(input.targetId);
+          if (order) assertBelongsToTenant(scope, order);
+        }
         this.auditEntries.push(input);
       },
+
+      findForAdmin: async (_scope: AdminScope, orderId) => this.orders.get(orderId) ?? null,
     };
   }
 }
@@ -80,6 +99,7 @@ export class FakeOrderStore implements TransactionalStore {
 export function anOrder(overrides: Partial<OrderSnapshot> = {}): OrderSnapshot {
   return {
     id: "ord_1",
+    merchantId: "mer_a",
     status: "PAID",
     customerId: "usr_client",
     locationId: "loc_1",

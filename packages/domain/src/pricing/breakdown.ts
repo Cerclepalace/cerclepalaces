@@ -32,7 +32,7 @@ export interface RevenueConfig {
    * Rémunération du coursier. Le modèle exact dépend de son statut juridique,
    * non tranché — d'où une valeur configurable et non une formule figée.
    */
-  readonly courierPayoutCents: number;
+  readonly driverPayoutCents: number;
   /** Frais de livraison facturés au client, en centimes. */
   readonly deliveryFeeCents: number;
 }
@@ -59,7 +59,7 @@ export interface OrderBreakdown {
   /** Reversé au shop. */
   readonly merchantPayoutCents: number;
   /** Reversé au coursier. */
-  readonly courierPayoutCents: number;
+  readonly driverPayoutCents: number;
   /** Prélevé par le PSP. */
   readonly pspFeeCents: number;
   /** Ce qui reste réellement à la plateforme, une fois tout le monde payé. */
@@ -96,18 +96,18 @@ export function computeBreakdown(input: {
     bps(productsSubtotalCents, revenue.commissionBps) + revenue.platformFixedFeeCents;
 
   const merchantPayoutCents = productsSubtotalCents - commissionCents;
-  const courierPayoutCents = revenue.courierPayoutCents;
+  const driverPayoutCents = revenue.driverPayoutCents;
   const pspFeeCents = bps(customerTotalCents, psp.variableBps) + psp.fixedCents;
 
   const platformNetCents =
-    customerTotalCents - merchantPayoutCents - courierPayoutCents - pspFeeCents;
+    customerTotalCents - merchantPayoutCents - driverPayoutCents - pspFeeCents;
 
   return {
     productsSubtotalCents,
     deliveryFeeCents,
     customerTotalCents,
     merchantPayoutCents,
-    courierPayoutCents,
+    driverPayoutCents,
     pspFeeCents,
     platformNetCents,
   };
@@ -121,7 +121,7 @@ export function computeBreakdown(input: {
 export function breakdownBalances(breakdown: OrderBreakdown): boolean {
   const distributed =
     breakdown.merchantPayoutCents +
-    breakdown.courierPayoutCents +
+    breakdown.driverPayoutCents +
     breakdown.pspFeeCents +
     breakdown.platformNetCents;
   return distributed === breakdown.customerTotalCents;

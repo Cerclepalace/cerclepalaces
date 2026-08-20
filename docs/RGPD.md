@@ -19,7 +19,7 @@
 
 ## Choix de minimisation déjà appliqués au schéma
 
-- **Position du coursier** : `Courier.lastLat/lastLng` est un champ **écrasé** à
+- **Position du coursier** : `Driver.lastLat/lastLng` est un champ **écrasé** à
   chaque mise à jour, jamais un historique. Hors mission, aucune trace de
   déplacement n'est conservée.
 - **`sessionKey`** est un identifiant technique éphémère reliant les événements

@@ -27,7 +27,7 @@ C'est le point important de ce module. La part plateforme se déduit une fois le
 shop, le coursier et le PSP payés :
 
 ```
-platformNet = customerTotal − merchantPayout − courierPayout − pspFee
+platformNet = customerTotal − merchantPayout − driverPayout − pspFee
 ```
 
 Elle **peut être négative**, et le code ne le masque pas. Pendant le pilote,

@@ -15,8 +15,8 @@ const employé: Principal = {
   merchantId: "mer_1",
   locationIds: ["loc_1"],
 };
-const coursier: Principal = { userId: "usr_coursier", roles: ["courier"], courierId: "crs_1" };
-const autreCoursier: Principal = { userId: "usr_c2", roles: ["courier"], courierId: "crs_2" };
+const coursier: Principal = { userId: "usr_coursier", roles: ["driver"], driverId: "crs_1" };
+const autreCoursier: Principal = { userId: "usr_c2", roles: ["driver"], driverId: "crs_2" };
 const support: Principal = { userId: "usr_support", roles: ["support_agent"] };
 const admin: Principal = { userId: "usr_admin", roles: ["admin"] };
 
@@ -24,7 +24,7 @@ const commande = {
   kind: "order",
   customerId: "usr_client",
   locationId: "loc_1",
-  assignedCourierId: "crs_1",
+  assignedDriverId: "crs_1",
 } as const;
 
 describe("cloisonnement entre clients", () => {
@@ -91,13 +91,13 @@ describe("cloisonnement entre coursiers", () => {
 
   it("empêche un coursier d'accéder à la mission d'un autre", () => {
     expect(
-      authorize(coursier, "read", { kind: "courier_mission", courierId: "crs_2" }).allowed,
+      authorize(coursier, "read", { kind: "driver_mission", driverId: "crs_2" }).allowed,
     ).toBe(false);
   });
 
   it("empêche un client de se faire passer pour un coursier", () => {
     expect(
-      authorize(client, "read", { kind: "courier_mission", courierId: "crs_1" }).allowed,
+      authorize(client, "read", { kind: "driver_mission", driverId: "crs_1" }).allowed,
     ).toBe(false);
   });
 });
@@ -137,7 +137,7 @@ describe("refus par défaut", () => {
     const ressources = [
       commande,
       { kind: "merchant_location", merchantId: "mer_1", locationId: "loc_1" },
-      { kind: "courier_mission", courierId: "crs_1" },
+      { kind: "driver_mission", driverId: "crs_1" },
       { kind: "compliance_document" },
       { kind: "platform_settings" },
     ] as const;

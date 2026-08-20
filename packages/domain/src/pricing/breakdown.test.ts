@@ -19,7 +19,7 @@ const revenue: RevenueConfig = {
   model: "commission_and_delivery",
   commissionBps: 1_500, // 15 %
   platformFixedFeeCents: 0,
-  courierPayoutCents: 450,
+  driverPayoutCents: 450,
   deliveryFeeCents: 490,
 };
 
@@ -71,7 +71,7 @@ describe("la marge peut être négative", () => {
   it("le montre au lieu de le masquer", () => {
     const coûteux = computeBreakdown({
       lines: [{ unitPriceCents: 1_500, quantity: 1 }],
-      revenue: { ...revenue, courierPayoutCents: 600, deliveryFeeCents: 290 },
+      revenue: { ...revenue, driverPayoutCents: 600, deliveryFeeCents: 290 },
       psp,
     });
     expect(coûteux.platformNetCents).toBeLessThan(0);

@@ -94,7 +94,7 @@ describe("contrôle des acteurs", () => {
   });
 
   it("empêche le coursier d'accepter une commande à la place du shop", () => {
-    const result = checkTransition("PAID", "ACCEPTED", "courier");
+    const result = checkTransition("PAID", "ACCEPTED", "driver");
     expect(result.ok).toBe(false);
   });
 
@@ -131,7 +131,7 @@ describe("assertTransition", () => {
 
 describe("reprise après échec de livraison", () => {
   it("permet une nouvelle tentative après un client injoignable", () => {
-    expect(checkTransition("CUSTOMER_UNAVAILABLE", "OUT_FOR_DELIVERY", "courier").ok).toBe(true);
+    expect(checkTransition("CUSTOMER_UNAVAILABLE", "OUT_FOR_DELIVERY", "driver").ok).toBe(true);
   });
 
   it("laisse le support sortir d'un incident", () => {

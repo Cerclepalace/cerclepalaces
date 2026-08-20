@@ -1,4 +1,4 @@
-# apps/courier
+# apps/driver
 
 Application coursier, mobile-first — candidature, vérification, profil, disponibilité, carte, missions, navigation, récupération, livraison, preuve de livraison, historique, gains, incidents.
 

@@ -22,15 +22,18 @@ import {
   isTerminalOrderStatus,
   requiresRefundDecision,
   type Actor,
+  type AdminScope,
   type OrderStatus,
+  type TenantScope,
 } from "@cbd/domain";
 
 export interface OrderSnapshot {
   readonly id: string;
+  readonly merchantId: string;
   readonly status: OrderStatus;
   readonly customerId: string;
   readonly locationId: string;
-  readonly assignedCourierId?: string;
+  readonly assignedDriverId?: string;
   /** Incrémenté à chaque transition : sert de garde contre les écritures concurrentes. */
   readonly version: number;
 }
@@ -56,20 +59,35 @@ export interface AuditEntryInput {
 /**
  * Ce que le service attend de la couche de persistance. `runInTransaction`
  * expose un dépôt dont toutes les écritures partagent la même transaction.
+ *
+ * Comme pour la livraison, **chaque méthode prend le `TenantScope` en premier
+ * paramètre**, sans valeur par défaut et sans variante optionnelle. Une commande
+ * appartient à un merchant : la lire ou l'écrire sans dire lequel n'a pas de
+ * sens, et le typage l'interdit.
  */
 export interface OrderRepository {
-  findById(orderId: string): Promise<OrderSnapshot | null>;
+  /** Lecture scopée. Renvoie `null` pour une commande d'un autre tenant. */
+  findById(scope: TenantScope, orderId: string): Promise<OrderSnapshot | null>;
   /**
    * Écrit le nouveau statut **si** la version en base est toujours celle lue.
    * Renvoie `false` si une autre écriture est passée entre-temps.
    */
-  updateStatus(input: {
-    readonly orderId: string;
-    readonly expectedVersion: number;
-    readonly toStatus: OrderStatus;
-  }): Promise<boolean>;
-  appendStatusEvent(input: StatusEventInput): Promise<void>;
-  appendAuditEntry(input: AuditEntryInput): Promise<void>;
+  updateStatus(
+    scope: TenantScope,
+    input: {
+      readonly orderId: string;
+      readonly expectedVersion: number;
+      readonly toStatus: OrderStatus;
+    },
+  ): Promise<boolean>;
+  appendStatusEvent(scope: TenantScope, input: StatusEventInput): Promise<void>;
+  appendAuditEntry(scope: TenantScope, input: AuditEntryInput): Promise<void>;
+
+  /**
+   * Accès inter-tenant, réservé au back-office plateforme. Nommée explicitement
+   * pour qu'un appel se remarque en revue de code.
+   */
+  findForAdmin(scope: AdminScope, orderId: string): Promise<OrderSnapshot | null>;
 }
 
 export interface TransactionalStore {
@@ -79,6 +97,9 @@ export interface TransactionalStore {
 export class OrderNotFoundError extends Error {
   readonly status = 404;
   constructor(orderId: string) {
+    // Message identique qu'il s'agisse d'une commande inexistante ou d'une
+    // commande d'un autre tenant : distinguer les deux permettrait d'énumérer
+    // les commandes des concurrents.
     super(`Commande ${orderId} introuvable.`);
     this.name = "OrderNotFoundError";
   }
@@ -130,6 +151,7 @@ export interface TransitionCommand {
  */
 export async function transitionOrder(
   store: TransactionalStore,
+  scope: TenantScope,
   command: TransitionCommand,
 ): Promise<TransitionResult> {
   // `system` est réservé aux déclencheurs internes — webhook de paiement,
@@ -140,7 +162,7 @@ export async function transitionOrder(
   }
 
   return store.runInTransaction(async (repo) => {
-    const order = await repo.findById(command.orderId);
+    const order = await repo.findById(scope, command.orderId);
     if (!order) throw new OrderNotFoundError(command.orderId);
 
     if (isTerminalOrderStatus(order.status)) {
@@ -162,7 +184,7 @@ export async function transitionOrder(
 
     const transition = assertTransition(order.status, command.toStatus, command.actor);
 
-    const written = await repo.updateStatus({
+    const written = await repo.updateStatus(scope, {
       orderId: order.id,
       expectedVersion: order.version,
       toStatus: command.toStatus,
@@ -177,7 +199,7 @@ export async function transitionOrder(
       );
     }
 
-    await repo.appendStatusEvent({
+    await repo.appendStatusEvent(scope, {
       orderId: order.id,
       fromStatus: order.status,
       toStatus: command.toStatus,
@@ -189,7 +211,7 @@ export async function transitionOrder(
     const refundDecisionRequired = requiresRefundDecision(order.status, command.toStatus);
 
     if (AUDITED_TARGETS.includes(command.toStatus) || refundDecisionRequired) {
-      await repo.appendAuditEntry({
+      await repo.appendAuditEntry(scope, {
         actorUserId: command.actorUserId,
         actorRole: command.actor,
         action: `order.transition.${command.toStatus.toLowerCase()}`,

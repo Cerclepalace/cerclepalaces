@@ -1,4 +1,4 @@
-import { OrderTransitionError } from "@cbd/domain";
+import { OrderTransitionError, adminScope, tenantScope } from "@cbd/domain";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,11 +8,13 @@ import {
 } from "./service.js";
 import { FakeOrderStore, anOrder } from "./store.fake.js";
 
+const shop = tenantScope("mer_a");
+
 describe("transition acceptée", () => {
   it("écrit le statut et son événement d'historique ensemble", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PAID" })]);
 
-    const result = await transitionOrder(store, {
+    const result = await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "ACCEPTED",
       actor: "merchant_staff",
@@ -32,7 +34,7 @@ describe("transition acceptée", () => {
 
   it("incrémente la version à chaque écriture", async () => {
     const store = new FakeOrderStore([anOrder({ status: "ACCEPTED", version: 4 })]);
-    await transitionOrder(store, {
+    await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "PREPARING",
       actor: "merchant_owner",
@@ -43,7 +45,7 @@ describe("transition acceptée", () => {
 
   it("enregistre la raison métier de la transition", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PREPARING" })]);
-    await transitionOrder(store, {
+    await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "READY_FOR_PICKUP",
       actor: "merchant_staff",
@@ -58,7 +60,7 @@ describe("transitions refusées", () => {
     const store = new FakeOrderStore([anOrder({ status: "OUT_FOR_DELIVERY" })]);
 
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "ord_1",
         toStatus: "DELIVERED",
         actor: "customer",
@@ -74,7 +76,7 @@ describe("transitions refusées", () => {
   it("refuse un saut d'étape même à un admin", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PAID" })]);
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "ord_1",
         toStatus: "DELIVERED",
         actor: "admin",
@@ -87,7 +89,7 @@ describe("transitions refusées", () => {
   it("refuse toute transition depuis un état terminal", async () => {
     const store = new FakeOrderStore([anOrder({ status: "DELIVERED" })]);
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "ord_1",
         toStatus: "CANCELLED",
         actor: "admin",
@@ -99,7 +101,7 @@ describe("transitions refusées", () => {
   it("signale une commande inexistante", async () => {
     const store = new FakeOrderStore([]);
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "inconnu",
         toStatus: "ACCEPTED",
         actor: "merchant_owner",
@@ -111,7 +113,7 @@ describe("transitions refusées", () => {
   it("refuse un acteur système porteur d'un utilisateur", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PENDING_PAYMENT" })]);
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "ord_1",
         toStatus: "PAID",
         actor: "system",
@@ -128,7 +130,7 @@ describe("écritures concurrentes", () => {
     store.onBeforeUpdate = (orderId) => store.bumpVersion(orderId);
 
     await expect(
-      transitionOrder(store, {
+      transitionOrder(store, shop, {
         orderId: "ord_1",
         toStatus: "ACCEPTED",
         actor: "merchant_owner",
@@ -151,9 +153,9 @@ describe("idempotence", () => {
       actorUserId: null,
     };
 
-    await transitionOrder(store, command);
-    await transitionOrder(store, command);
-    await transitionOrder(store, command);
+    await transitionOrder(store, shop, command);
+    await transitionOrder(store, shop, command);
+    await transitionOrder(store, shop, command);
 
     expect(store.get("ord_1")?.status).toBe("PAID");
     expect(store.statusEvents).toHaveLength(1);
@@ -164,7 +166,7 @@ describe("traçabilité", () => {
   it("audite une escalade en incident, sans y voir un remboursement", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PREPARING" })]);
 
-    const result = await transitionOrder(store, {
+    const result = await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "INCIDENT",
       actor: "admin",
@@ -185,7 +187,7 @@ describe("traçabilité", () => {
   it("signale le remboursement quand l'incident se referme en annulation", async () => {
     const store = new FakeOrderStore([anOrder({ status: "INCIDENT" })]);
 
-    const result = await transitionOrder(store, {
+    const result = await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "CANCELLED",
       actor: "admin",
@@ -198,7 +200,7 @@ describe("traçabilité", () => {
 
   it("n'audite pas une étape ordinaire du chemin nominal", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PAID" })]);
-    await transitionOrder(store, {
+    await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "ACCEPTED",
       actor: "merchant_owner",
@@ -210,10 +212,10 @@ describe("traçabilité", () => {
 
   it("audite une livraison confirmée", async () => {
     const store = new FakeOrderStore([anOrder({ status: "OUT_FOR_DELIVERY" })]);
-    await transitionOrder(store, {
+    await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "DELIVERED",
-      actor: "courier",
+      actor: "driver",
       actorUserId: "usr_coursier",
     });
     expect(store.auditEntries).toHaveLength(1);
@@ -221,7 +223,7 @@ describe("traçabilité", () => {
 
   it("ne signale pas de remboursement avant encaissement", async () => {
     const store = new FakeOrderStore([anOrder({ status: "PENDING_PAYMENT" })]);
-    const result = await transitionOrder(store, {
+    const result = await transitionOrder(store, shop, {
       orderId: "ord_1",
       toStatus: "CANCELLED",
       actor: "customer",
@@ -240,19 +242,83 @@ describe("parcours complet", () => {
       { toStatus: "ACCEPTED", actor: "merchant_staff", actorUserId: "usr_shop" },
       { toStatus: "PREPARING", actor: "merchant_staff", actorUserId: "usr_shop" },
       { toStatus: "READY_FOR_PICKUP", actor: "merchant_staff", actorUserId: "usr_shop" },
-      { toStatus: "COURIER_ASSIGNED", actor: "system", actorUserId: null },
-      { toStatus: "PICKED_UP", actor: "courier", actorUserId: "usr_coursier" },
-      { toStatus: "OUT_FOR_DELIVERY", actor: "courier", actorUserId: "usr_coursier" },
-      { toStatus: "DELIVERED", actor: "courier", actorUserId: "usr_coursier" },
+      { toStatus: "DRIVER_ASSIGNED", actor: "system", actorUserId: null },
+      { toStatus: "PICKED_UP", actor: "driver", actorUserId: "usr_coursier" },
+      { toStatus: "OUT_FOR_DELIVERY", actor: "driver", actorUserId: "usr_coursier" },
+      { toStatus: "DELIVERED", actor: "driver", actorUserId: "usr_coursier" },
     ] as const;
 
     for (const étape of étapes) {
-      await transitionOrder(store, { orderId: "ord_1", ...étape });
+      await transitionOrder(store, shop, { orderId: "ord_1", ...étape });
     }
 
     expect(store.get("ord_1")?.status).toBe("DELIVERED");
     expect(store.statusEvents).toHaveLength(8);
     // L'historique reconstitue la commande dans l'ordre, sans trou.
     expect(store.statusEvents.map((e) => e.toStatus)).toEqual(étapes.map((e) => e.toStatus));
+  });
+});
+
+// Isolation multi-tenant sur les commandes : même exigence que sur les
+// livraisons, vérifiée séparément parce qu'elle passe par un autre dépôt.
+describe("isolation multi-tenant", () => {
+  const shopB = tenantScope("mer_b");
+
+  const deuxShops = () =>
+    new FakeOrderStore([
+      anOrder({ id: "ord_a", merchantId: "mer_a" }),
+      anOrder({ id: "ord_b", merchantId: "mer_b" }),
+    ]);
+
+  it("ne lit jamais la commande d'un autre tenant", async () => {
+    const store = deuxShops();
+    await store.runInTransaction(async (repo) => {
+      expect(await repo.findById(shop, "ord_b")).toBeNull();
+      expect(await repo.findById(shopB, "ord_a")).toBeNull();
+      expect((await repo.findById(shop, "ord_a"))?.id).toBe("ord_a");
+    });
+  });
+
+  it("refuse une transition sur la commande d'un autre tenant", async () => {
+    const store = deuxShops();
+
+    await expect(
+      transitionOrder(store, shop, {
+        orderId: "ord_b",
+        toStatus: "ACCEPTED",
+        actor: "merchant_owner",
+        actorUserId: "usr_shop",
+      }),
+    ).rejects.toThrow(OrderNotFoundError);
+
+    expect(store.get("ord_b")?.status).toBe("PAID");
+    expect(store.statusEvents).toHaveLength(0);
+  });
+
+  it("ne distingue pas « inexistante » de « appartient à un autre »", async () => {
+    const store = deuxShops();
+    await store.runInTransaction(async (repo) => {
+      expect(await repo.findById(shop, "ord_b")).toBeNull();
+      expect(await repo.findById(shop, "ord_jamais_vue")).toBeNull();
+    });
+  });
+
+  it("n'accepte pas un merchantId nu à la place du scope", async () => {
+    const store = deuxShops();
+    await store.runInTransaction(async (repo) => {
+      // @ts-expect-error un objet littéral n'est pas un TenantScope
+      await repo.findById({ merchantId: "mer_b" }, "ord_b");
+      // @ts-expect-error le scope n'est jamais optionnel
+      await repo.findById("ord_a");
+    });
+  });
+
+  it("réserve l'accès inter-tenant à une méthode nommée", async () => {
+    const store = deuxShops();
+    await store.runInTransaction(async (repo) => {
+      expect((await repo.findForAdmin(adminScope("usr_admin"), "ord_b"))?.id).toBe("ord_b");
+      // @ts-expect-error un TenantScope n'est pas un AdminScope
+      await repo.findForAdmin(shop, "ord_b");
+    });
   });
 });

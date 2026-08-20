@@ -26,15 +26,15 @@ export interface Principal {
   /** Locations qu'il peut administrer. Vide pour un merchant_owner : tout son Merchant. */
   readonly locationIds?: readonly string[];
   /** Son identifiant coursier, s'il en est un. */
-  readonly courierId?: string;
+  readonly driverId?: string;
 }
 
 /** Ce à quoi l'appelant veut accéder. */
 export type Resource =
   | { readonly kind: "own_account"; readonly userId: string }
-  | { readonly kind: "order"; readonly customerId: string; readonly locationId: string; readonly assignedCourierId?: string }
+  | { readonly kind: "order"; readonly customerId: string; readonly locationId: string; readonly assignedDriverId?: string }
   | { readonly kind: "merchant_location"; readonly merchantId: string; readonly locationId: string }
-  | { readonly kind: "courier_mission"; readonly courierId: string }
+  | { readonly kind: "driver_mission"; readonly driverId: string }
   | { readonly kind: "compliance_document" }
   | { readonly kind: "platform_settings" };
 
@@ -89,7 +89,7 @@ export function authorize(principal: Principal, action: Action, resource: Resour
       if (principal.merchantId && coversLocation(principal, principal.merchantId, resource.locationId)) {
         return ALLOW;
       }
-      if (principal.courierId && principal.courierId === resource.assignedCourierId) {
+      if (principal.driverId && principal.driverId === resource.assignedDriverId) {
         return ALLOW;
       }
       return DENY("Cette commande ne relève pas de cet utilisateur.");
@@ -107,9 +107,9 @@ export function authorize(principal: Principal, action: Action, resource: Resour
       }
       return ALLOW;
 
-    case "courier_mission":
-      if (!principal.courierId) return DENY("Utilisateur non coursier.");
-      return principal.courierId === resource.courierId
+    case "driver_mission":
+      if (!principal.driverId) return DENY("Utilisateur non coursier.");
+      return principal.driverId === resource.driverId
         ? ALLOW
         : DENY("Cette mission est assignée à un autre coursier.");
 

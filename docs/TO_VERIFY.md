@@ -12,7 +12,7 @@ mise en service réelle qui attend.
 
 | # | Décision | Bloque | Impact code |
 |---|----------|--------|-------------|
-| 01 | Statut juridique des coursiers (indépendant / salarié / autre) | Lancement | `Courier.legalStatus` reste libre ; le calcul de rémunération est configurable |
+| 01 | Statut juridique des coursiers (indépendant / salarié / autre) | Lancement | `Driver.legalStatus` reste libre ; le calcul de rémunération est configurable |
 | 02 | Assurance, matériel, responsabilité, gestion des accidents coursiers | Lancement | Modèle `Incident` prévu, règles de traitement non écrites |
 | 03 | Règles spécifiques à la livraison de CBD (transport, étiquetage) | Lancement | Aucune règle codée en dur |
 | 04 | Modèle économique retenu et niveau exact des parts | Développement partiel | `RevenueConfig` accepte 5 modèles, aucun par défaut |
@@ -22,7 +22,7 @@ mise en service réelle qui attend.
 | 08 | CGV / CGU adaptées au modèle retenu | Lancement | — |
 | 09 | Choix du PSP : compatibilité CBD, split payment, KYC/KYB, commissions | Développement paiement | `Payment.provider` volontairement générique |
 | 10 | Seuils réglementaires de conformité produit (THC/CBD) | Mise en vente | Taux stockés tels que déclarés, seuils non codés |
-| 11 | Vérification d'âge à la commande ou à la livraison | Lancement | Non implémentée, à cadrer avant le pilote |
+| 11 | Vérification d'âge à la commande ou à la livraison | Lancement | `ProofOfDelivery` accepte PHOTO/SIGNATURE/CODE ; `DEFAULT_PROOF_POLICY` n'exige rien tant que la règle n'est pas connue |
 | 12 | Durées de conservation RGPD et base légale par donnée | Lancement | Voir `RGPD.md` |
 | 13 | Zone géographique exacte du pilote | Phase 2 | `DeliveryZone` paramétrable, aucune zone en dur |
 
@@ -52,5 +52,10 @@ Plutôt que de choisir par défaut, le code exprime la variabilité :
   négative, ce qui est l'information à voir pendant le pilote.
 - `Payment.provider` et `Payment.providerRef` sont des chaînes libres : aucune
   dépendance à un PSP particulier avant la décision 09.
+- `NoopPaymentProvider` et `NoopDeliveryProvider` **refusent explicitement**
+  toute opération plutôt que de simuler un succès : une commande ne peut pas
+  passer en `PAID` sans qu'un euro ait bougé.
+- Le split payment et les comptes connectés ne sont **pas** modélisés : les
+  ajouter trancherait la décision 05 en silence, du côté du modèle marketplace.
 - `ProductCompliance` stocke les taux déclarés sans appliquer de seuil : la
   règle appliquée est uniquement « seul `APPROVED` est vendable ».

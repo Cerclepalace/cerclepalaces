@@ -25,17 +25,17 @@ Phase 1 en cours — **socle métier**. Ce qui existe aujourd'hui :
 - `packages/domain` — les règles métier, testées
 - `packages/config` — validation de la configuration, qui refuse de démarrer si elle est incomplète
 - `packages/db` — schéma Prisma complet, validé
-- `apps/api` — authentification, contrôle d'accès, service de commande
-- `docs/` — architecture, modèle économique, conformité, RGPD, propriété intellectuelle, décisions ouvertes
+- `apps/api` — authentification, contrôle d'accès, services commande et livraison, contrat HTTP
+- `docs/` — architecture, réseau de livraison, modèle économique, conformité, RGPD, propriété intellectuelle, décisions ouvertes
 
-**140 tests, typecheck propre.** Les interfaces (`apps/client`, `shop`,
-`courier`, `admin`) restent des emplacements réservés.
+**310 tests, typecheck propre.** Les interfaces (`apps/client`, `shop`,
+`driver`, `admin`) restent des emplacements réservés.
 
 ## Démarrer
 
 ```sh
 npm install
-npm test          # 140 tests, tous les paquets
+npm test          # 310 tests, tous les paquets
 npm run typecheck
 ```
 
@@ -51,7 +51,7 @@ DATABASE_URL="postgresql://…" npx prisma validate
 apps/
   client/   interface client
   shop/     back-office commerçant
-  courier/  application coursier
+  driver/   application coursier
   admin/    back-office plateforme
   api/      API centrale — seul écrivain de la base
 packages/
@@ -68,9 +68,14 @@ docs/
 appartiennent à un point de vente précis, jamais au catalogue global. Un produit
 n'est jamais présenté comme disponible parce qu'il existe quelque part.
 
-**Les transitions de commande sont contrôlées côté serveur.** Chaque changement
-de statut passe par `assertTransition(from, to, actor)`, qui vérifie la
-transition *et* le droit de l'acteur. Aucune app front n'écrit un statut.
+**Les transitions sont contrôlées côté serveur.** Chaque changement de statut,
+commande ou livraison, passe par `assertTransition` / `assertDeliveryTransition`,
+qui vérifient la transition *et* le droit de l'acteur. Aucune app front n'écrit
+un statut.
+
+**La multi-tenancy est imposée par le typage.** `TenantScope` est un type
+nominal : une méthode de repository tenantée ne peut pas être appelée sans lui,
+et aucun rôle — admin compris — ne le contourne implicitement.
 
 ## Décisions non arrêtées
 
@@ -84,6 +89,7 @@ attend ces décisions.
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Réseau de livraison](docs/DELIVERY-NETWORK.md)
 - [Modèle économique](docs/MODELE-ECONOMIQUE.md)
 - [Conformité produit](docs/CONFORMITE-CBD.md)
 - [Données personnelles](docs/RGPD.md)

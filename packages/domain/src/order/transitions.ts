@@ -42,21 +42,21 @@ export const ORDER_TRANSITIONS: readonly OrderTransition[] = [
   { from: "PREPARING", to: "INCIDENT", actors: [...MERCHANT, ...PLATFORM], reason: "Problème pendant la préparation." },
 
   // --- Dispatch et livraison ---
-  { from: "READY_FOR_PICKUP", to: "COURIER_ASSIGNED", actors: ["system", ...PLATFORM], reason: "Un coursier a accepté la mission." },
+  { from: "READY_FOR_PICKUP", to: "DRIVER_ASSIGNED", actors: ["system", ...PLATFORM], reason: "Un coursier a accepté la mission." },
   { from: "READY_FOR_PICKUP", to: "INCIDENT", actors: PLATFORM, reason: "Aucun coursier disponible dans le délai acceptable." },
-  { from: "COURIER_ASSIGNED", to: "PICKED_UP", actors: ["courier"], reason: "Le coursier a récupéré la commande au shop." },
-  { from: "COURIER_ASSIGNED", to: "READY_FOR_PICKUP", actors: ["system", ...PLATFORM], reason: "Coursier désassigné — la mission repart au dispatch." },
-  { from: "COURIER_ASSIGNED", to: "INCIDENT", actors: ["courier", ...PLATFORM], reason: "Incident avant récupération." },
-  { from: "PICKED_UP", to: "OUT_FOR_DELIVERY", actors: ["courier"], reason: "Le coursier part vers le client." },
-  { from: "PICKED_UP", to: "INCIDENT", actors: ["courier", ...PLATFORM], reason: "Incident après récupération, marchandise en main du coursier." },
-  { from: "OUT_FOR_DELIVERY", to: "DELIVERED", actors: ["courier"], reason: "Livraison confirmée (preuve de livraison enregistrée)." },
-  { from: "OUT_FOR_DELIVERY", to: "CUSTOMER_UNAVAILABLE", actors: ["courier"], reason: "Client injoignable à l'adresse." },
-  { from: "OUT_FOR_DELIVERY", to: "DELIVERY_FAILED", actors: ["courier", ...PLATFORM], reason: "Livraison impossible (adresse invalide, refus, empêchement)." },
-  { from: "OUT_FOR_DELIVERY", to: "INCIDENT", actors: ["courier", ...PLATFORM], reason: "Incident pendant la livraison." },
+  { from: "DRIVER_ASSIGNED", to: "PICKED_UP", actors: ["driver"], reason: "Le coursier a récupéré la commande au shop." },
+  { from: "DRIVER_ASSIGNED", to: "READY_FOR_PICKUP", actors: ["system", ...PLATFORM], reason: "Coursier désassigné — la mission repart au dispatch." },
+  { from: "DRIVER_ASSIGNED", to: "INCIDENT", actors: ["driver", ...PLATFORM], reason: "Incident avant récupération." },
+  { from: "PICKED_UP", to: "OUT_FOR_DELIVERY", actors: ["driver"], reason: "Le coursier part vers le client." },
+  { from: "PICKED_UP", to: "INCIDENT", actors: ["driver", ...PLATFORM], reason: "Incident après récupération, marchandise en main du coursier." },
+  { from: "OUT_FOR_DELIVERY", to: "DELIVERED", actors: ["driver"], reason: "Livraison confirmée (preuve de livraison enregistrée)." },
+  { from: "OUT_FOR_DELIVERY", to: "CUSTOMER_UNAVAILABLE", actors: ["driver"], reason: "Client injoignable à l'adresse." },
+  { from: "OUT_FOR_DELIVERY", to: "DELIVERY_FAILED", actors: ["driver", ...PLATFORM], reason: "Livraison impossible (adresse invalide, refus, empêchement)." },
+  { from: "OUT_FOR_DELIVERY", to: "INCIDENT", actors: ["driver", ...PLATFORM], reason: "Incident pendant la livraison." },
 
   // --- Reprises après échec ---
-  { from: "CUSTOMER_UNAVAILABLE", to: "OUT_FOR_DELIVERY", actors: ["courier"], reason: "Le client rappelle, nouvelle tentative." },
-  { from: "CUSTOMER_UNAVAILABLE", to: "DELIVERY_FAILED", actors: ["courier", ...PLATFORM], reason: "Abandon après tentatives infructueuses." },
+  { from: "CUSTOMER_UNAVAILABLE", to: "OUT_FOR_DELIVERY", actors: ["driver"], reason: "Le client rappelle, nouvelle tentative." },
+  { from: "CUSTOMER_UNAVAILABLE", to: "DELIVERY_FAILED", actors: ["driver", ...PLATFORM], reason: "Abandon après tentatives infructueuses." },
   { from: "CUSTOMER_UNAVAILABLE", to: "INCIDENT", actors: PLATFORM, reason: "Escalade au support." },
   { from: "DELIVERY_FAILED", to: "INCIDENT", actors: PLATFORM, reason: "Traitement de l'échec par le support (retour shop, remboursement)." },
 
