@@ -160,3 +160,41 @@ export async function clearSegmentCache(): Promise<void> {
     ),
   );
 }
+
+/**
+ * Purge tout ce qui n'appartient pas à la vidéo en cours : à chaque nouvelle
+ * source, les anciennes extractions audio (lourdes en base64) sont supprimées
+ * pour garder la base légère et les lectures rapides.
+ */
+export async function purgeOtherSources(fingerprint: string): Promise<number> {
+  const db = await openDb();
+  if (!db) return 0;
+  let removed = 0;
+  await Promise.all(
+    [STORE_AUDIO, STORE_CUES].map(
+      (store) =>
+        new Promise<void>((resolve) => {
+          try {
+            const tx = db.transaction(store, "readwrite");
+            const os = tx.objectStore(store);
+            const req = os.openCursor();
+            req.onsuccess = () => {
+              const cursor = req.result;
+              if (!cursor) return;
+              if (!String(cursor.key).startsWith(`${fingerprint}#`)) {
+                cursor.delete();
+                removed++;
+              }
+              cursor.continue();
+            };
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+            tx.onabort = () => resolve();
+          } catch {
+            resolve();
+          }
+        }),
+    ),
+  );
+  return removed;
+}
