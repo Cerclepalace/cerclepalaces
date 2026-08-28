@@ -450,7 +450,7 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
       stream.once("error", cleanup);
     });
   } catch (e) {
-    if (!res.headersSent) res.status(500).json({ error: String(e.message || e) });
+    if (!res.headersSent) res.status(e?.status || 500).json({ error: String(e.message || e) });
     else res.destroy();
   } finally {
     if (renderSlotAcquired) releaseRenderSlot();
