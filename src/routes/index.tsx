@@ -6,6 +6,8 @@ import {
   computeSegments,
   probeDuration,
   clearSegmentCache,
+  purgeOtherSources,
+  sourceFingerprint,
   FONT_OPTIONS,
   type Short,
   type FontKey,
@@ -87,6 +89,21 @@ function Home() {
   const [status, setStatus] = useState<string>("");
   const [progress, setProgress] = useState<{ i: number; total: number } | null>(null);
   const [shorts, setShorts] = useState<Short[]>([]);
+  const shortsRef = useRef<Short[]>([]);
+  shortsRef.current = shorts;
+  // Libère la mémoire des shorts précédents (blob: URLs) avant chaque run :
+  // sans ça le navigateur garde toutes les anciennes vidéos en RAM et ralentit.
+  const purgeShorts = useCallback(() => {
+    for (const s of shortsRef.current) {
+      try {
+        URL.revokeObjectURL(s.url);
+      } catch {
+        /* ignore */
+      }
+    }
+    shortsRef.current = [];
+    setShorts([]);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -170,7 +187,9 @@ function Home() {
     }
     setError(null);
     setFile(f);
-    setShorts([]);
+    purgeShorts();
+    // Nouvelle source = les caches des vidéos précédentes ne servent plus.
+    void purgeOtherSources(sourceFingerprint(f));
     try {
       const d = await probeDuration(f);
       setDuration(d);
@@ -317,7 +336,7 @@ function Home() {
       abortRef.current = controller;
       setBusy(true);
       setError(null);
-      setShorts([]);
+      purgeShorts();
       setMetrics({});
       setRunStartMs(Date.now());
       setNowMs(Date.now());
@@ -355,7 +374,7 @@ function Home() {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           if (controller.signal.aborted) break;
           if (attempt > 1) {
-            setShorts([]);
+            purgeShorts();
             setMetrics({});
             setProgress(null);
             setStatus(`Nouvelle tentative ${attempt}/${MAX_ATTEMPTS}…`);
@@ -1445,12 +1464,13 @@ function Home() {
                 type="button"
                 disabled={busy}
                 onClick={async () => {
+                  purgeShorts();
                   await clearSegmentCache();
-                  setStatus("Cache vidé (audio + transcriptions)");
+                  setStatus("Anciennes vidéos et cache vidés");
                 }}
                 className="shrink-0 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-40"
               >
-                Vider le cache
+                Vider les anciennes vidéos
               </button>
             </div>
 
