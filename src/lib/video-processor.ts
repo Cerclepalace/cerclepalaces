@@ -20,7 +20,7 @@ type RenderBackend = {
   terminate(): void;
 };
 
-export { clearSegmentCache } from "./segment-cache";
+export { clearSegmentCache, purgeOtherSources, sourceFingerprint } from "./segment-cache";
 export { suggestedPoolSize } from "./ffmpeg-pool";
 
 
@@ -121,7 +121,7 @@ export const AUDIO_NORM_FILTER =
 const LOCAL_PROFILE: RenderProfile = {
   width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 540, bgHeight: 960,
   blur: "16:2", fontSize: 100, outline: 6, shadow: 4, marginV: 270,
-  crf: "19", audioBitrate: "192k", fps: 30, preset: "veryfast",
+  crf: "19", audioBitrate: "192k", fps: 30, preset: "superfast",
 };
 
 // Distant : mêmes contraintes de qualité, preset plus rapide pour tenir la RAM
@@ -129,7 +129,7 @@ const LOCAL_PROFILE: RenderProfile = {
 const REMOTE_PROFILE: RenderProfile = {
   width: MIN_EXPORT_WIDTH, height: MIN_EXPORT_HEIGHT, bgWidth: 540, bgHeight: 960,
   blur: "12:1", fontSize: 100, outline: 5, shadow: 4, marginV: 270,
-  crf: "19", audioBitrate: "192k", fps: 30, preset: "veryfast",
+  crf: "19", audioBitrate: "192k", fps: 30, preset: "superfast",
 };
 
 
@@ -1008,9 +1008,11 @@ export async function retrySegment(opts: {
           "-map", "[vencoded]",
           "-map", "0:a?",
           "-c:v", "libx264",
-          "-threads", "2",
+          "-threads", "0",
           "-preset", profile.preset,
+          "-tune", "fastdecode",
           "-crf", profile.crf,
+          "-g", String(profile.fps * 2),
           "-c:a", "aac",
           "-b:a", profile.audioBitrate,
           "-movflags", "+faststart",

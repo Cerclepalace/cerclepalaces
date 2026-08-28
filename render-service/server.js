@@ -435,8 +435,10 @@ app.post("/session/:id/render", requireAuth, async (req, res) => {
           : ["-map", "0:a?", "-af", "aresample=48000:async=1:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11"]),
 
         "-c:v", "libx264",
-        "-threads", "1",
+        "-threads", "0",
         "-preset", String(preset),
+        "-tune", "fastdecode",
+        "-g", String(safeFps * 2),
         "-crf", String(crf),
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
