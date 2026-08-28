@@ -118,6 +118,30 @@ const upload = multer({
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 Go
 });
 
+// Détection fiable de la déconnexion client : sous Node 18+, l'évènement
+// `req.aborted` n'est plus émis de façon fiable. La fermeture de la réponse
+// avant sa fin est le signal qui marche partout (iPhone qui verrouille, onglet
+// fermé, réseau coupé).
+function onClientGone(req, handler) {
+  const res = req?.res;
+  const onClose = () => {
+    if (res && res.writableEnded) return; // réponse terminée normalement
+    handler();
+  };
+  req?.once?.("aborted", handler);
+  res?.once?.("close", onClose);
+  return () => {
+    req?.off?.("aborted", handler);
+    res?.off?.("close", onClose);
+  };
+}
+
+function isClientGone(req) {
+  if (req?.aborted) return true;
+  const res = req?.res;
+  return Boolean(res && res.destroyed && !res.writableEnded);
+}
+
 function runFfmpeg(args, cwd, req, timeoutMs = FFMPEG_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
@@ -129,15 +153,15 @@ function runFfmpeg(args, cwd, req, timeoutMs = FFMPEG_TIMEOUT_MS) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      req?.off?.("aborted", onClose);
+      detach();
       fn(value);
     };
     // Si le client (iPhone) coupe la connexion, on tue ffmpeg au lieu de laisser
     // le CPU tourner pour rien et bloquer la file d'attente.
-    const onClose = () => {
+    const detach = onClientGone(req, () => {
       aborted = true;
       proc.kill("SIGKILL");
-    };
+    });
     // Un processus ffmpeg figé ne doit jamais conserver un créneau de rendu à
     // vie. Le finally de la route libérera ensuite le worker pour le short suivant.
     const timeout = setTimeout(() => {
@@ -145,7 +169,6 @@ function runFfmpeg(args, cwd, req, timeoutMs = FFMPEG_TIMEOUT_MS) {
       proc.kill("SIGKILL");
     }, timeoutMs);
     timeout.unref();
-    req?.once?.("aborted", onClose);
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 40_000) stderr = stderr.slice(-20_000);
@@ -162,20 +185,48 @@ function runFfmpeg(args, cwd, req, timeoutMs = FFMPEG_TIMEOUT_MS) {
   });
 }
 
+// Une file d'attente ne doit jamais grossir indéfiniment : au-delà de ces
+// bornes, le service répond « occupé » et le client réessaie plus tard.
+const MAX_QUEUE_LENGTH = Math.max(2, Number(process.env.MAX_QUEUE_LENGTH || 12));
+const MAX_QUEUE_WAIT_MS = Math.max(10_000, Number(process.env.MAX_QUEUE_WAIT_MS || 120_000));
+
+function dropFromQueue(entry) {
+  const index = renderQueue.indexOf(entry);
+  if (index >= 0) renderQueue.splice(index, 1);
+  entry.detach?.();
+  clearTimeout(entry.timer);
+}
+
 async function acquireRenderSlot(req) {
   if (activeRenders < MAX_RENDER_CONCURRENCY) {
     activeRenders++;
     return;
   }
+  // Purge des entrées mortes avant d'évaluer la saturation.
+  for (const entry of [...renderQueue]) {
+    if (isClientGone(entry.req)) {
+      dropFromQueue(entry);
+      entry.reject(new Error("client déconnecté pendant l'attente"));
+    }
+  }
+  if (renderQueue.length >= MAX_QUEUE_LENGTH) {
+    const err = new Error("service occupé — file d'attente pleine");
+    err.status = 503;
+    throw err;
+  }
   await new Promise((resolve, reject) => {
     const entry = { resolve, reject, req };
-    const onAbort = () => {
-      const index = renderQueue.indexOf(entry);
-      if (index >= 0) renderQueue.splice(index, 1);
+    entry.detach = onClientGone(req, () => {
+      dropFromQueue(entry);
       reject(new Error("client déconnecté pendant l'attente"));
-    };
-    entry.onAbort = onAbort;
-    req.once("aborted", onAbort);
+    });
+    entry.timer = setTimeout(() => {
+      dropFromQueue(entry);
+      const err = new Error("attente trop longue — réessaie");
+      err.status = 503;
+      reject(err);
+    }, MAX_QUEUE_WAIT_MS);
+    entry.timer.unref?.();
     renderQueue.push(entry);
   });
   activeRenders++;
@@ -185,12 +236,18 @@ function releaseRenderSlot() {
   activeRenders = Math.max(0, activeRenders - 1);
   while (renderQueue.length > 0) {
     const entry = renderQueue.shift();
-    if (!entry || entry.req.aborted) continue;
-    entry.req.off("aborted", entry.onAbort);
+    if (!entry) continue;
+    entry.detach?.();
+    clearTimeout(entry.timer);
+    if (isClientGone(entry.req)) {
+      entry.reject(new Error("client déconnecté pendant l'attente"));
+      continue;
+    }
     entry.resolve();
     break;
   }
 }
+
 
 /**
  * Maintient la compatibilité avec les clients déjà ouverts pendant un
