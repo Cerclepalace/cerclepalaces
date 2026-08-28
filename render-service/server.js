@@ -280,6 +280,19 @@ app.get("/health", (_req, res) =>
   res.json({ ok: true, activeRenders, queued: renderQueue.length, maxConcurrency: MAX_RENDER_CONCURRENCY }),
 );
 
+// Débloque manuellement une file restée coincée (clients fantômes).
+app.post("/queue/reset", requireAuth, (_req, res) => {
+  const flushed = renderQueue.length;
+  while (renderQueue.length) {
+    const entry = renderQueue.shift();
+    entry?.detach?.();
+    clearTimeout(entry?.timer);
+    entry?.reject?.(new Error("file réinitialisée"));
+  }
+  activeRenders = 0;
+  res.json({ ok: true, flushed });
+});
+
 // ── auto-test : simule un ffmpeg figé et vérifie le coupe-circuit ───────────
 // Lance un encodage volontairement infini avec un timeout court, puis mesure
 // que le processus est bien tué et que le créneau de la file est relâché.
