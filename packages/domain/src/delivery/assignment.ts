@@ -73,17 +73,33 @@ export type AssignmentOutcome =
         | "ALREADY_RESOLVED"
         | "OFFER_EXPIRED"
         | "DELIVERY_ALREADY_ASSIGNED"
+        | "DELIVERY_NOT_OFFERING"
         | "WRONG_DRIVER";
       readonly message: string;
     };
+
+/**
+ * Propriété **courante** de la course — pas son historique.
+ *
+ * La distinction est le cœur de ce module. Une proposition `ACCEPTED` dans
+ * l'historique dit « ce driver a accepté à un moment » ; elle ne dit pas « ce
+ * driver détient la course maintenant ». Confondre les deux empêchait toute
+ * réassignation après un désistement.
+ */
+export interface CurrentOwnership {
+  /** Statut de la livraison. Seul `OFFERING` autorise une acceptation. */
+  readonly status: string;
+  /** Driver actuellement attaché, ou `null` si la course est libre. */
+  readonly assignedDriverId: string | null;
+}
 
 export interface RespondInput {
   readonly assignment: Assignment;
   /** Le driver qui répond — comparé à celui de la proposition. */
   readonly respondingDriverId: string;
   readonly response: AssignmentResponse;
-  /** Les autres propositions de la même livraison, pour détecter une course déjà prise. */
-  readonly siblings: readonly Assignment[];
+  /** État courant de la livraison, seule source de vérité sur la propriété. */
+  readonly currentOwnership: CurrentOwnership;
   readonly now: Date;
 }
 
@@ -101,7 +117,7 @@ export interface RespondInput {
  * inutile, elle ne remplace pas la garantie transactionnelle.
  */
 export function respondToOffer(input: RespondInput): AssignmentOutcome {
-  const { assignment, respondingDriverId, response, siblings, now } = input;
+  const { assignment, respondingDriverId, response, currentOwnership, now } = input;
 
   if (assignment.driverId !== respondingDriverId) {
     return {
@@ -126,14 +142,24 @@ export function respondToOffer(input: RespondInput): AssignmentOutcome {
     return { ok: true, status: "REJECTED" };
   }
 
-  const takenByAnother = siblings.some(
-    (sibling) => sibling.id !== assignment.id && sibling.status === "ACCEPTED",
-  );
-  if (takenByAnother) {
+  // Course déjà prise : on regarde le driver attaché à la livraison, pas
+  // l'historique des propositions.
+  if (currentOwnership.assignedDriverId !== null) {
     return {
       ok: false,
       code: "DELIVERY_ALREADY_ASSIGNED",
       message: "Un autre driver a déjà accepté cette course.",
+    };
+  }
+
+  // Une acceptation n'a de sens que sur une course en recherche. Ce contrôle
+  // referme le contournement de la machine d'état : sans lui, une livraison en
+  // PENDING_DISPATCH pouvait passer directement en ASSIGNED.
+  if (currentOwnership.status !== "OFFERING") {
+    return {
+      ok: false,
+      code: "DELIVERY_NOT_OFFERING",
+      message: "Cette course n'est plus en recherche de driver.",
     };
   }
 

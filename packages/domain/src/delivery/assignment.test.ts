@@ -13,6 +13,12 @@ import {
 const T0 = new Date("2026-06-01T12:00:00Z");
 const plus = (seconds: number): Date => new Date(T0.getTime() + seconds * 1000);
 
+/** Course libre et en recherche : le cas nominal d'une acceptation. */
+const libre = { status: "OFFERING", assignedDriverId: null } as const;
+
+/** Course déjà prise par un autre driver. */
+const prise = (driverId: string) => ({ status: "ASSIGNED", assignedDriverId: driverId }) as const;
+
 const offer = (overrides: Partial<Assignment> = {}): Assignment => ({
   id: "asg_1",
   deliveryId: "dlv_1",
@@ -51,7 +57,7 @@ describe("acceptation", () => {
       assignment: offer(),
       respondingDriverId: "drv_1",
       response: "ACCEPTED",
-      siblings: [],
+      currentOwnership: libre,
       now: plus(5),
     });
     expect(résultat).toEqual({ ok: true, status: "ACCEPTED" });
@@ -62,7 +68,7 @@ describe("acceptation", () => {
       assignment: offer(),
       respondingDriverId: "drv_1",
       response: "ACCEPTED",
-      siblings: [],
+      currentOwnership: libre,
       now: plus(45),
     });
     expect(résultat.ok).toBe(false);
@@ -74,7 +80,7 @@ describe("acceptation", () => {
       assignment: offer(),
       respondingDriverId: "drv_intrus",
       response: "ACCEPTED",
-      siblings: [],
+      currentOwnership: libre,
       now: plus(5),
     });
     expect(résultat.ok).toBe(false);
@@ -86,7 +92,7 @@ describe("acceptation", () => {
       assignment: offer({ status: "REJECTED" }),
       respondingDriverId: "drv_1",
       response: "ACCEPTED",
-      siblings: [],
+      currentOwnership: libre,
       now: plus(5),
     });
     expect(résultat.ok).toBe(false);
@@ -104,17 +110,17 @@ describe("deux drivers acceptent en même temps", () => {
       assignment: pourA,
       respondingDriverId: "drv_a",
       response: "ACCEPTED",
-      siblings: [pourA, pourB],
+      currentOwnership: libre,
       now: plus(5),
     });
     expect(premier).toEqual({ ok: true, status: "ACCEPTED" });
 
-    // A vient d'être écrit : B répond sur un état déjà pris.
+    // A vient d'être écrit : la course porte désormais son driver.
     const second = respondToOffer({
       assignment: pourB,
       respondingDriverId: "drv_b",
       response: "ACCEPTED",
-      siblings: [{ ...pourA, status: "ACCEPTED" }, pourB],
+      currentOwnership: prise("drv_a"),
       now: plus(5),
     });
     expect(second.ok).toBe(false);
@@ -127,7 +133,7 @@ describe("deux drivers acceptent en même temps", () => {
       assignment: pourB,
       respondingDriverId: "drv_b",
       response: "ACCEPTED",
-      siblings: [offer({ id: "asg_a", driverId: "drv_a", status: "ACCEPTED" }), pourB],
+      currentOwnership: prise("drv_a"),
       // Offre également expirée : le motif « course prise » doit primer.
       now: plus(60),
     });
@@ -142,7 +148,7 @@ describe("refus", () => {
       assignment: offer(),
       respondingDriverId: "drv_1",
       response: "REJECTED",
-      siblings: [],
+      currentOwnership: libre,
       now: plus(5),
     });
     expect(résultat).toEqual({ ok: true, status: "REJECTED" });
@@ -153,7 +159,7 @@ describe("refus", () => {
       assignment: offer({ id: "asg_b", driverId: "drv_b" }),
       respondingDriverId: "drv_b",
       response: "REJECTED",
-      siblings: [offer({ id: "asg_a", driverId: "drv_a", status: "ACCEPTED" })],
+      currentOwnership: prise("drv_a"),
       now: plus(5),
     });
     expect(résultat.ok).toBe(true);

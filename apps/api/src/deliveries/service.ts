@@ -61,6 +61,33 @@ const AUDITED_TARGETS: readonly DeliveryStatus[] = [
   "UNASSIGNED",
 ];
 
+/**
+ * États où la course n'a plus de driver légitime.
+ *
+ * `DELIVERED` en est délibérément absent : le driver a fait la course, il doit
+ * rester attaché pour le payout et la traçabilité. Partout ailleurs, laisser
+ * `assignedDriverId` renseigné donnerait un accès résiduel — `guard.ts` accorde
+ * la lecture d'une commande sur ce champ.
+ */
+const RELEASES_DRIVER: readonly DeliveryStatus[] = [
+  "UNASSIGNED",
+  "CANCELLED",
+  "FAILED",
+];
+
+/**
+ * États où les propositions encore ouvertes n'ont plus d'objet.
+ *
+ * Sans cette invalidation, un driver peut recevoir puis accepter une offre sur
+ * une course annulée : le verrou de version le bloquerait, mais avec un message
+ * trompeur — et rien ne le bloquerait si l'offre était rejouée plus tard.
+ */
+const VOIDS_OPEN_OFFERS: readonly DeliveryStatus[] = [
+  "UNASSIGNED",
+  "CANCELLED",
+  "FAILED",
+];
+
 export interface DeliveryTransitionCommand {
   readonly deliveryId: string;
   readonly toStatus: DeliveryStatus;
@@ -110,19 +137,37 @@ export async function transitionDelivery(
 
     const transition = assertDeliveryTransition(delivery.status, command.toStatus, command.actor);
 
+    // La libération du driver n'est pas laissée à l'appelant : un oubli
+    // laisserait un accès résiduel sur une course qu'il ne fait plus.
+    const releasesDriver = RELEASES_DRIVER.includes(command.toStatus);
+
     const written = await repo.updateStatus(scope, {
       deliveryId: delivery.id,
       expectedVersion: delivery.version,
       toStatus: command.toStatus,
-      ...(command.assignedDriverId !== undefined
-        ? { assignedDriverId: command.assignedDriverId }
-        : {}),
+      ...(releasesDriver
+        ? { assignedDriverId: null }
+        : command.assignedDriverId !== undefined
+          ? { assignedDriverId: command.assignedDriverId }
+          : {}),
     });
 
     if (!written) {
       throw new DeliveryConflictError(
         "La livraison a été modifiée entre-temps. Recharger et réessayer.",
       );
+    }
+
+    if (VOIDS_OPEN_OFFERS.includes(command.toStatus)) {
+      const open = await repo.listAssignments(scope, delivery.id);
+      for (const assignment of open) {
+        if (assignment.status !== "OFFERED") continue;
+        await repo.updateAssignmentStatus(scope, {
+          assignmentId: assignment.id,
+          toStatus: "CANCELLED",
+          respondedAt: new Date(0),
+        });
+      }
     }
 
     await repo.appendStatusEvent(scope, {
@@ -266,11 +311,24 @@ export async function runDispatchRound(
         // Le passage en OFFERING accompagne le premier tour ; les suivants
         // laissent le statut inchangé.
         if (delivery.status !== "OFFERING") {
-          await repo.updateStatus(scope, {
+          // La transition est validée comme n'importe quelle autre : le
+          // dispatch n'a pas de passe-droit sur la machine d'état.
+          assertDeliveryTransition(delivery.status, "OFFERING", "system");
+
+          const opened = await repo.updateStatus(scope, {
             deliveryId: delivery.id,
             expectedVersion: delivery.version,
             toStatus: "OFFERING",
           });
+
+          // Sans cette garde, un second worker créerait un jeu d'offres
+          // concurrent et écrirait un événement que l'état ne reflète pas.
+          if (!opened) {
+            throw new DeliveryConflictError(
+              "La livraison a été modifiée pendant le tour de dispatch. Recharger et réessayer.",
+            );
+          }
+
           await repo.appendStatusEvent(scope, {
             deliveryId: delivery.id,
             fromStatus: delivery.status,
@@ -326,13 +384,18 @@ export async function respondToAssignment(
     const delivery = await repo.findById(scope, target.deliveryId);
     if (!delivery) throw new DeliveryNotFoundError(target.deliveryId);
 
-    const siblings = (await repo.listAssignments(scope, target.deliveryId)).map(toAssignment);
-
     const outcome = respondToOffer({
       assignment: toAssignment(target),
       respondingDriverId: input.driverId,
       response: input.response,
-      siblings,
+      // La propriété courante est portée par la livraison, jamais déduite de
+      // l'historique des propositions : un ACCEPTED passé est un fait, pas un
+      // verrou. C'est ce qui permet à un second driver de reprendre une course
+      // rendue.
+      currentOwnership: {
+        status: delivery.status,
+        assignedDriverId: delivery.assignedDriverId,
+      },
       now: input.now,
     });
 
@@ -349,6 +412,11 @@ export async function respondToAssignment(
       });
       return { kind: "REJECTED", deliveryId: delivery.id };
     }
+
+    // La transition passe par la machine d'état, comme toutes les autres.
+    // Sans cet appel, une livraison en PENDING_DISPATCH pouvait devenir
+    // ASSIGNED — une transition qui n'existe pas dans la table.
+    assertDeliveryTransition(delivery.status, "ASSIGNED", "driver");
 
     // Le verrou optimiste tranche les acceptations simultanées.
     const written = await repo.updateStatus(scope, {
