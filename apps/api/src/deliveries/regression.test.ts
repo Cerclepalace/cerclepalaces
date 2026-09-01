@@ -222,26 +222,64 @@ describe("C2 — cycle complet de réassignation", () => {
     expect(store.get("dlv_1")?.assignedDriverId).toBe("drv_b");
   });
 
-  it("conserve l'historique du passage de A", async () => {
+  /**
+   * Correction P1-01. La version initiale de ce test partait d'une livraison
+   * `OFFERING` portant déjà une proposition `ACCEPTED` — un état que
+   * PostgreSQL refuse (`uniq_delivery_accepted_assignment`) et que le modèle
+   * corrigé ne produit plus : rendre la course clôt la proposition du driver
+   * libéré. Le fait « A avait accepté » n'est pas effacé pour autant, il est
+   * daté et clos.
+   */
+  it("clôt la proposition de A sans effacer son passage", async () => {
     const store = new FakeDeliveryStore(
-      [aDelivery({ status: "OFFERING", version: 1 })],
+      [aDelivery({ status: "ASSIGNED", assignedDriverId: "drv_a", version: 1 })],
       [
         anAssignment({ id: "asg_a", driverId: "drv_a", status: "ACCEPTED" }),
         anAssignment({ id: "asg_b", driverId: "drv_b", rank: 2, expiresAt: plus(30) }),
       ],
     );
 
-    await respondToAssignment(store, shop, {
-      assignmentId: "asg_b",
-      driverId: "drv_b",
-      response: "ACCEPTED",
-      now: plus(5),
+    // A rend la course.
+    await transitionDelivery(store, shop, {
+      deliveryId: "dlv_1",
+      toStatus: "UNASSIGNED",
+      actor: "driver",
+      actorUserId: "usr_a",
     });
 
-    // L'ACCEPTED historique de A reste : c'est un fait, pas un verrou.
-    expect(store.getAssignment("asg_a")?.status).toBe("ACCEPTED");
-    expect(store.getAssignment("asg_b")?.status).toBe("ACCEPTED");
+    // Les deux propositions vivantes sont closes : celle de A, acceptée, et
+    // celle de B, encore ouverte sur une course qui n'existe plus sous cette
+    // forme.
+    expect(store.getAssignment("asg_a")?.status).toBe("CANCELLED");
+    expect(store.getAssignment("asg_b")?.status).toBe("CANCELLED");
+    // La ligne de A reste, avec son driver : l'historique est lisible.
+    expect(store.getAssignment("asg_a")?.driverId).toBe("drv_a");
+
+    // La course repart, B est resollicité et accepte : une acceptation passée
+    // ne verrouille rien.
+    await transitionDelivery(store, shop, {
+      deliveryId: "dlv_1",
+      toStatus: "OFFERING",
+      actor: "system",
+      actorUserId: null,
+    });
+    const nouvelle = store.addAssignment(
+      anAssignment({ id: "asg_b2", driverId: "drv_b", rank: 3, expiresAt: plus(120) }),
+    );
+
+    const acceptation = await respondToAssignment(store, shop, {
+      assignmentId: nouvelle.id,
+      driverId: "drv_b",
+      response: "ACCEPTED",
+      now: plus(60),
+    });
+
+    expect(acceptation).toMatchObject({ kind: "ACCEPTED" });
     expect(store.get("dlv_1")?.assignedDriverId).toBe("drv_b");
+    // Invariant tenu par l'index partiel : une seule acceptation vivante.
+    expect(
+      store.allAssignments().filter((assignment) => assignment.status === "ACCEPTED"),
+    ).toHaveLength(1);
   });
 });
 

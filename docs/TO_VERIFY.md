@@ -25,6 +25,7 @@ mise en service réelle qui attend.
 | 11 | Vérification d'âge à la commande ou à la livraison | Lancement | `ProofOfDelivery` accepte PHOTO/SIGNATURE/CODE ; `DEFAULT_PROOF_POLICY` n'exige rien tant que la règle n'est pas connue |
 | 12 | Durées de conservation RGPD et base légale par donnée | Lancement | Voir `RGPD.md` |
 | 13 | Zone géographique exacte du pilote | Phase 2 | `DeliveryZone` paramétrable, aucune zone en dur |
+| 14 | Portée de la première migration : la générer telle quelle créerait `Payment` et `DriverPayout`, hors périmètre actuel | Développement base | Voir ci-dessous ; aucun fichier de migration écrit tant que ce n'est pas tranché |
 
 ## Les trois modèles de vente (décision 05)
 
@@ -59,3 +60,30 @@ Plutôt que de choisir par défaut, le code exprime la variabilité :
   ajouter trancherait la décision 05 en silence, du côté du modèle marketplace.
 - `ProductCompliance` stocke les taux déclarés sans appliquer de seuil : la
   règle appliquée est uniquement « seul `APPROVED` est vendable ».
+
+## Portée de la première migration (décision 14)
+
+`prisma migrate diff --from-empty` produit aujourd'hui 963 lignes de SQL : 37
+tables, 12 énumérations, 59 clés étrangères, 72 index. Parmi ces tables,
+`Payment` et `DriverPayout` — et l'énumération `PaymentStatus` — appartiennent à
+un périmètre explicitement gelé.
+
+Trois issues, aucune neutre :
+
+- **A — migrer tout le schéma.** Simple, mais crée en base des tables d'un
+  périmètre gelé. Ce que la base contient finit par être lu comme ce que le
+  produit fait.
+- **B — migrer tout sauf ces tables.** Le schéma Prisma et la base divergent
+  alors en permanence, et chaque `migrate diff` ultérieur rejouera l'écart.
+  C'est une dette qui se paie à chaque migration, pas une fois.
+- **C — retirer ces modèles du schéma, puis migrer.** Aucune divergence, périmètre
+  strict. Coût : les retirer maintenant et les réintroduire plus tard, avec la
+  connaissance du PSP retenu (décision 09) et du modèle de vente (décision 05) —
+  c'est-à-dire au moment où leur forme sera réellement connue.
+
+Recommandation : **C**. Les deux modèles concernés dépendent de décisions non
+prises ; les figer aujourd'hui en base, c'est figer des colonnes qu'on redessinera
+de toute façon.
+
+En attendant, la base de développement est peuplée par `prisma db push` sur une
+base jetable, et aucun fichier de migration n'est versionné.

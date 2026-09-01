@@ -125,12 +125,18 @@ export interface DeliveryRepository {
     inputs: readonly CreateAssignmentInput[],
   ): Promise<readonly AssignmentRecord[]>;
 
+  /**
+   * `respondedAt` n'est renseigné que lorsqu'un driver a réellement répondu.
+   * Une clôture décidée par la plateforme (course annulée, driver libéré) n'est
+   * pas une réponse : elle laisse l'horodatage existant intact plutôt que
+   * d'inventer une réponse qui n'a pas eu lieu.
+   */
   updateAssignmentStatus(
     scope: TenantScope,
     input: {
       readonly assignmentId: string;
       readonly toStatus: AssignmentStatus;
-      readonly respondedAt: Date;
+      readonly respondedAt?: Date;
       readonly rejectionReason?: string;
     },
   ): Promise<void>;

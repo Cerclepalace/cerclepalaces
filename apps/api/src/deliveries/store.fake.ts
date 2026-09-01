@@ -81,6 +81,18 @@ export class FakeDeliveryStore implements DeliveryTransactionalStore {
     return [...this.assignments.values()];
   }
 
+  /**
+   * Insère une proposition en cours de scénario, hors transaction.
+   *
+   * Réservé aux tests qui doivent poser un état intermédiaire que le service ne
+   * produit pas lui-même — un second tour de dispatch simulé, par exemple.
+   */
+  addAssignment(assignment: AssignmentRecord): AssignmentRecord {
+    this.assignments.set(assignment.id, assignment);
+    while (this.assignments.has(`asg_${this.nextAssignmentId}`)) this.nextAssignmentId += 1;
+    return assignment;
+  }
+
   bumpVersion(deliveryId: string): void {
     const delivery = this.deliveries.get(deliveryId);
     if (delivery) this.deliveries.set(deliveryId, { ...delivery, version: delivery.version + 1 });
@@ -194,6 +206,22 @@ export class FakeDeliveryStore implements DeliveryTransactionalStore {
         if (!this.scoped(scope, assignment.deliveryId)) {
           throw new Error("Mise à jour de proposition hors scope tenant.");
         }
+
+        // Le faux reproduit l'index partiel `uniq_delivery_accepted_assignment`
+        // de PostgreSQL. Sans cette garde, une suite en mémoire resterait verte
+        // là où la vraie base rejette l'écriture — c'est exactement la
+        // divergence relevée en intégration.
+        if (toStatus === "ACCEPTED") {
+          for (const autre of this.assignments.values()) {
+            if (autre.id === assignmentId) continue;
+            if (autre.deliveryId !== assignment.deliveryId) continue;
+            if (autre.status !== "ACCEPTED") continue;
+            throw new Error(
+              'duplicate key value violates unique constraint "uniq_delivery_accepted_assignment"',
+            );
+          }
+        }
+
         const previous = assignment;
         this.assignments.set(assignmentId, { ...assignment, status: toStatus });
         undo.push(() => this.assignments.set(assignmentId, previous));

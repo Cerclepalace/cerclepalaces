@@ -216,9 +216,13 @@ export function createDeliveryRepository(db: Db): DeliveryRepository {
         },
         data: {
           status: toStatus as never,
-          respondedAt,
-          ...(toStatus === "ACCEPTED" ? { acceptedAt: respondedAt } : {}),
-          ...(toStatus === "REJECTED" ? { rejectedAt: respondedAt } : {}),
+          ...(respondedAt === undefined ? {} : { respondedAt }),
+          ...(toStatus === "ACCEPTED" && respondedAt !== undefined
+            ? { acceptedAt: respondedAt }
+            : {}),
+          ...(toStatus === "REJECTED" && respondedAt !== undefined
+            ? { rejectedAt: respondedAt }
+            : {}),
           ...(rejectionReason ? { rejectionReason } : {}),
         },
       });

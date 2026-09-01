@@ -76,17 +76,33 @@ const RELEASES_DRIVER: readonly DeliveryStatus[] = [
 ];
 
 /**
- * États où les propositions encore ouvertes n'ont plus d'objet.
+ * États où les propositions encore vivantes n'ont plus d'objet.
  *
- * Sans cette invalidation, un driver peut recevoir puis accepter une offre sur
- * une course annulée : le verrou de version le bloquerait, mais avec un message
- * trompeur — et rien ne le bloquerait si l'offre était rejouée plus tard.
+ * Deux cas y sont clos, et pas un seul :
+ *
+ *  - les propositions encore `OFFERED` — sans quoi un driver peut recevoir puis
+ *    accepter une offre sur une course annulée : le verrou de version le
+ *    bloquerait, mais avec un message trompeur, et rien ne le bloquerait si
+ *    l'offre était rejouée plus tard ;
+ *  - la proposition `ACCEPTED` du driver qui vient d'être libéré. Elle décrit
+ *    une propriété qui n'existe plus. La laisser ouverte rendait toute
+ *    réassignation impossible en base : l'index partiel
+ *    `uniq_delivery_accepted_assignment` n'admet qu'une acceptation vivante par
+ *    livraison, et la seconde acceptation était rejetée par PostgreSQL —
+ *    divergence constatée en intégration, pas en théorie.
+ *
+ * Clore n'est pas réécrire l'histoire : `acceptedAt` reste renseigné. Une
+ * proposition `CANCELLED` portant un `acceptedAt` se lit exactement pour ce
+ * qu'elle est — « ce driver avait accepté, puis la course lui a été retirée ».
  */
-const VOIDS_OPEN_OFFERS: readonly DeliveryStatus[] = [
+const CLOSES_LIVE_ASSIGNMENTS: readonly DeliveryStatus[] = [
   "UNASSIGNED",
   "CANCELLED",
   "FAILED",
 ];
+
+/** Statuts de proposition qui engagent encore quelqu'un. */
+const LIVE_ASSIGNMENT_STATUSES: readonly string[] = ["OFFERED", "ACCEPTED"];
 
 export interface DeliveryTransitionCommand {
   readonly deliveryId: string;
@@ -158,14 +174,14 @@ export async function transitionDelivery(
       );
     }
 
-    if (VOIDS_OPEN_OFFERS.includes(command.toStatus)) {
-      const open = await repo.listAssignments(scope, delivery.id);
-      for (const assignment of open) {
-        if (assignment.status !== "OFFERED") continue;
+    if (CLOSES_LIVE_ASSIGNMENTS.includes(command.toStatus)) {
+      const existantes = await repo.listAssignments(scope, delivery.id);
+      for (const assignment of existantes) {
+        if (!LIVE_ASSIGNMENT_STATUSES.includes(assignment.status)) continue;
+        // Pas de `respondedAt` : personne n'a répondu, la plateforme a clos.
         await repo.updateAssignmentStatus(scope, {
           assignmentId: assignment.id,
           toStatus: "CANCELLED",
-          respondedAt: new Date(0),
         });
       }
     }

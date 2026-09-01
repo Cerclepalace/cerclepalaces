@@ -122,9 +122,10 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 
 ## Documents liés
 
-- `TO_VERIFY.md` — les 16 décisions non arrêtées
+- `TO_VERIFY.md` — les 14 décisions non arrêtées
 - `MODELE-ECONOMIQUE.md` — répartition financière, non tranchée
 - `CONFORMITE-CBD.md` — architecture de conformité produit
 - `DELIVERY-NETWORK.md` — réseau de livraison, dispatch, multi-tenancy
+- `INTEGRATION-POSTGRESQL.md` — ce que la vraie base confirme, et ce qu'elle a contredit
 - `RGPD.md` — données personnelles collectées et leur usage
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
