@@ -128,5 +128,6 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 - `DELIVERY-NETWORK.md` — réseau de livraison, dispatch, multi-tenancy
 - `INTEGRATION-POSTGRESQL.md` — ce que la vraie base confirme, et ce qu'elle a contredit
 - `V1-PARCOURS-METIER.md` — le parcours vendeur → produit → commande simulée
+- `P2-CATALOGUE-CONFORMITE.md` — politique de catalogue, preuves juridiques, portail de mise en vente
 - `RGPD.md` — données personnelles collectées et leur usage
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
