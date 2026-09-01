@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ORDER_FULFILMENT_MODES,
   ORDER_HAPPY_PATH,
+  ORDER_PAYMENT_STATES,
   ORDER_STATUSES,
   ORDER_TERMINAL_STATUSES,
+  isPaymentState,
   isTerminalOrderStatus,
   requiresRefundDecision,
   type OrderStatus,
@@ -15,6 +18,7 @@ import {
   assertTransition,
   checkTransition,
   outgoingTransitions,
+  SIMULATED_HAPPY_PATH,
 } from "./transitions.js";
 
 describe("intégrité de la table de transitions", () => {
@@ -153,5 +157,109 @@ describe("requiresRefundDecision", () => {
   it("ne signale rien sur le chemin nominal", () => {
     expect(requiresRefundDecision("PICKED_UP", "OUT_FOR_DELIVERY")).toBe(false);
     expect(requiresRefundDecision("OUT_FOR_DELIVERY", "DELIVERED")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Commande simulée : le parcours du pilote, sans argent
+// ---------------------------------------------------------------------------
+
+describe("mode de traitement", () => {
+  it("interdit les états de paiement à une commande simulée", () => {
+    // C'est la garantie centrale : une commande simulée ne peut pas prétendre
+    // avoir été payée. Pas « ne le fait pas » — ne le peut pas.
+    for (const état of ORDER_PAYMENT_STATES) {
+      const résultat = checkTransition("CART", état, "customer", "SIMULATED");
+      expect(résultat.ok, état).toBe(false);
+    }
+  });
+
+  it("dit pourquoi plutôt que de prétendre que la transition n'existe pas", () => {
+    const résultat = checkTransition("CART", "PENDING_PAYMENT", "customer", "SIMULATED");
+    expect(résultat.ok).toBe(false);
+    if (!résultat.ok) {
+      expect(résultat.code).toBe("MODE_NOT_ALLOWED");
+      expect(résultat.message).toContain("encaissement");
+    }
+  });
+
+  it("réserve le raccourci CART → ACCEPTED aux commandes simulées", () => {
+    expect(checkTransition("CART", "ACCEPTED", "merchant_owner", "SIMULATED").ok).toBe(true);
+
+    const payant = checkTransition("CART", "ACCEPTED", "merchant_owner", "PAYMENT_REQUIRED");
+    expect(payant.ok).toBe(false);
+    if (!payant.ok) expect(payant.code).toBe("MODE_NOT_ALLOWED");
+  });
+
+  it("retient le mode payant quand l'appelant l'oublie", () => {
+    // Un oubli doit fermer le raccourci, pas ouvrir un chemin vers PAID.
+    expect(checkTransition("CART", "ACCEPTED", "merchant_owner").ok).toBe(false);
+    expect(checkTransition("CART", "PENDING_PAYMENT", "customer").ok).toBe(true);
+  });
+
+  it("laisse un client abandonner son panier dans les deux modes", () => {
+    for (const mode of ORDER_FULFILMENT_MODES) {
+      expect(checkTransition("CART", "CANCELLED", "customer", mode).ok, mode).toBe(true);
+    }
+  });
+
+  it("ne change rien à partir de l'acceptation", () => {
+    // Une fois la commande acceptée, le parcours est le même : préparation,
+    // dispatch, livraison. Le mode ne concerne que l'entrée.
+    const paires = [
+      ["ACCEPTED", "PREPARING"],
+      ["PREPARING", "READY_FOR_PICKUP"],
+      ["READY_FOR_PICKUP", "DRIVER_ASSIGNED"],
+      ["OUT_FOR_DELIVERY", "DELIVERED"],
+    ] as const;
+    for (const [de, vers] of paires) {
+      const simulé = allowedNextStatuses(de, "system", "SIMULATED");
+      const payant = allowedNextStatuses(de, "system", "PAYMENT_REQUIRED");
+      expect(new Set(simulé), `${de}→${vers}`).toEqual(new Set(payant));
+    }
+  });
+
+  it("décrit un parcours simulé complet, du panier à la livraison", () => {
+    expect(SIMULATED_HAPPY_PATH).toEqual([
+      "CART",
+      "ACCEPTED",
+      "PREPARING",
+      "READY_FOR_PICKUP",
+      "DRIVER_ASSIGNED",
+      "PICKED_UP",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+    ]);
+  });
+
+  it("ne fait passer le parcours simulé par aucun état de paiement", () => {
+    for (const état of SIMULATED_HAPPY_PATH) {
+      expect(isPaymentState(état), état).toBe(false);
+    }
+  });
+
+  it("laisse un shop refuser une commande simulée", () => {
+    // Sans cette sortie, un shop devrait accepter une commande simulée qu'il
+    // ne veut pas, ou la laisser en panier indéfiniment.
+    expect(checkTransition("CART", "MERCHANT_REJECTED", "merchant_owner", "SIMULATED").ok).toBe(
+      true,
+    );
+  });
+});
+
+describe("question de remboursement", () => {
+  it("ne se pose jamais sur une commande simulée", () => {
+    // Rien n'a été encaissé : il n'y a rien à rembourser.
+    expect(requiresRefundDecision("PREPARING", "CANCELLED", "SIMULATED")).toBe(false);
+    expect(requiresRefundDecision("OUT_FOR_DELIVERY", "DELIVERY_FAILED", "SIMULATED")).toBe(false);
+  });
+
+  it("se pose toujours sur une commande payante", () => {
+    expect(requiresRefundDecision("PREPARING", "CANCELLED", "PAYMENT_REQUIRED")).toBe(true);
+  });
+
+  it("retient le mode prudent quand l'appelant l'oublie", () => {
+    // Une question posée à tort se voit ; une question omise, non.
+    expect(requiresRefundDecision("PREPARING", "CANCELLED")).toBe(true);
   });
 });

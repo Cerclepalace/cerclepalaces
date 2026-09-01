@@ -13,7 +13,10 @@ export * from "./tenancy/scope.js";
 export * from "./order/status.js";
 export * from "./order/transitions.js";
 
+export * from "./merchant/status.js";
+
 export * from "./compliance/status.js";
+export * from "./catalog/publication.js";
 
 export * from "./delivery/status.js";
 export * from "./delivery/assignment.js";

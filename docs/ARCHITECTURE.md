@@ -127,5 +127,6 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 - `CONFORMITE-CBD.md` — architecture de conformité produit
 - `DELIVERY-NETWORK.md` — réseau de livraison, dispatch, multi-tenancy
 - `INTEGRATION-POSTGRESQL.md` — ce que la vraie base confirme, et ce qu'elle a contredit
+- `V1-PARCOURS-METIER.md` — le parcours vendeur → produit → commande simulée
 - `RGPD.md` — données personnelles collectées et leur usage
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
