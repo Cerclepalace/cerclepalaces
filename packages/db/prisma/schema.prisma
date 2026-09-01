@@ -423,7 +423,6 @@ model Order {
   items        OrderItem[]
   statusEvents OrderStatusEvent[]
   delivery     Delivery?
-  payment      Payment?
   incidents    Incident[]
   qrEvents     QrScanEvent[]
 
@@ -542,7 +541,6 @@ model Driver {
   availabilityLog DriverAvailabilityLog[]
   assignments     DeliveryAssignment[]
   deliveries      Delivery[]
-  payouts         DriverPayout[]
   decisions       DispatchDecision[]
 
   @@index([availability, verification])
@@ -627,7 +625,6 @@ model Delivery {
   statusEvents   DeliveryStatusEvent[]
   proofs         ProofOfDelivery[]
   dispatchRounds DispatchRound[]
-  payout         DriverPayout?
 
   @@index([merchantId, status])
   @@index([status, createdAt])
@@ -772,68 +769,29 @@ model ProofOfDelivery {
 }
 
 // ---------------------------------------------------------------------------
-// Rémunération driver
+// Rémunération driver et paiement — HORS PÉRIMÈTRE (décision 14, option C)
 // ---------------------------------------------------------------------------
 
-// Calcul figé à la livraison, décomposé poste par poste. `calculationVersion`
-// permet de faire évoluer la formule sans réécrire l'historique : un payout
-// ancien reste explicable avec les règles de son époque.
+// Les modèles `DriverPayout` et `Payment`, ainsi que l'énumération
+// `PaymentStatus`, ont été retirés de ce schéma avant la première migration.
 //
-// Aucun versement réel n'est effectué : le modèle économique et le statut
-// juridique du driver ne sont pas arrêtés (docs/TO_VERIFY.md, décisions 01 et 04).
-model DriverPayout {
-  id                 String   @id @default(cuid())
-  deliveryId         String   @unique
-  driverId           String
-  baseAmountCents    Int
-  distanceAmountCents Int
-  waitingAmountCents Int
-  bonusAmountCents   Int
-  totalAmountCents   Int
-  currency           String   @default("EUR")
-  calculationVersion Int
-  createdAt          DateTime @default(now())
-
-  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  driver   Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
-
-  @@index([driverId, createdAt])
-}
-
-// ---------------------------------------------------------------------------
-// Paiement
-// ---------------------------------------------------------------------------
-
-enum PaymentStatus {
-  PENDING
-  AUTHORIZED
-  CAPTURED
-  FAILED
-  REFUNDED
-  PARTIALLY_REFUNDED
-}
-
-// Le PSP et le modèle de flux (qui encaisse, qui reverse) ne sont pas arrêtés —
-// docs/TO_VERIFY.md, décisions 05 et 09. Les identifiants externes restent donc
-// des chaînes libres, sans dépendance à un fournisseur particulier. Aucun
-// encaissement réel n'est implémenté : voir NoopPaymentProvider.
-model Payment {
-  id             String        @id @default(cuid())
-  orderId        String        @unique
-  status         PaymentStatus @default(PENDING)
-  provider       String?
-  providerRef    String?
-  amountCents    Int
-  pspFeeCents    Int?
-  refundedCents  Int           @default(0)
-  capturedAt     DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-}
+// Pourquoi. Leur forme dépend de décisions qui ne sont pas prises : qui est le
+// vendeur légal (décision 05), quel PSP et quel modèle de flux (décision 09),
+// quel statut juridique pour le driver et quelle formule de rémunération
+// (décisions 01 et 04). Les figer en base aujourd'hui reviendrait à trancher ces
+// questions en silence, du côté d'un modèle marketplace qui n'est pas retenu —
+// et à redessiner ces colonnes de toute façon le jour où les réponses arrivent.
+//
+// Ce que ce retrait ne fait pas. Il ne retire aucune règle de calcul :
+// `packages/domain/src/pricing/breakdown.ts` et
+// `packages/domain/src/delivery/payout.ts` restent en place et testés, et
+// `Order` conserve sa répartition figée (`merchantPayoutCents`,
+// `driverPayoutCents`, `platformNetCents`). Ce sont des montants calculés à la
+// commande, pas un journal de mouvements : rien n'y est encaissé ni versé.
+//
+// Réintroduction. Ces modèles reviendront par une migration dédiée, une fois les
+// décisions 05 et 09 arrêtées. Leur forme d'origine reste lisible dans
+// l'historique git de ce fichier.
 
 // ---------------------------------------------------------------------------
 // Acquisition par QR

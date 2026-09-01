@@ -20,15 +20,12 @@ base au moment de leur écriture. Deux choses seulement sont vérifiables ici :
 
 | Objet | Compte |
 |---|---|
-| Tables | 37 |
-| Clés étrangères | 59 |
-| Index uniques | 58 |
-| Index (total) | 110 |
-| Énumérations | 12 |
+| Tables | 35 |
+| Clés étrangères | 56 |
+| Index (total) | 105 |
+| Énumérations | 11 |
 
-Schéma appliqué par `prisma db push` sur une base jetable. **Aucun fichier de
-migration n'a été écrit** : la décision de portée (voir `TO_VERIFY.md`) n'est pas
-tranchée, et générer la migration reviendrait à la trancher en silence.
+Schéma appliqué par la première migration versionnée (voir plus bas).
 
 ## L'index que Prisma ne sait pas écrire
 
@@ -38,10 +35,16 @@ CREATE UNIQUE INDEX "uniq_delivery_accepted_assignment"
   WHERE "status" = 'ACCEPTED';
 ```
 
-Conservé dans `packages/db/prisma/sql/001_uniq_delivery_accepted_assignment.sql`,
-à reprendre dans la première migration. Le langage de schéma de Prisma n'a pas de
-clause `WHERE` sur un index ; sans écriture manuelle, la contrainte n'existe
-nulle part.
+Écrit à la main **dans la migration elle-même**, après les `CREATE TABLE`. Le
+langage de schéma de Prisma n'a pas de clause `WHERE` sur un index ; sans cette
+écriture manuelle, la contrainte n'existerait nulle part. Il a d'abord vécu dans
+un fichier SQL séparé, le temps que la portée de la migration soit tranchée ;
+maintenant qu'elle l'est, le garder à côté ferait deux sources pour la même DDL.
+
+Point à connaître : `prisma migrate diff` **ne voit pas** cet index. Il ne
+proposera donc jamais de le supprimer, mais il ne le protège pas non plus — un
+`migrate diff` propre ne prouve pas qu'il est là. C'est le test `sanity` de la
+suite d'intégration qui le vérifie réellement.
 
 Vérifié en contournant complètement l'application, en SQL brut :
 
@@ -165,3 +168,44 @@ dispatch, alors que tout l'intérêt de ce journal est de pouvoir répondre plus
 tard à « pourquoi pas lui ». `DriverCandidate.position` est devenu nullable et
 le moteur écarte lui-même, avec un motif nommé : `POSITION_UNKNOWN`, distance
 `null` — et non zéro, qui l'aurait classé premier.
+
+## Décision 14 — tranchée le 1er septembre 2026 : option C
+
+`Payment`, `DriverPayout` et l'énumération `PaymentStatus` ont été **retirés du
+schéma** avant la première migration.
+
+**Pourquoi pas A (tout migrer).** Leur forme dépend de décisions qui ne sont pas
+prises : qui est le vendeur légal (décision 05), quel PSP et quel modèle de flux
+(décision 09), quel statut juridique pour le driver et quelle formule de
+rémunération (décisions 01 et 04). Les figer aujourd'hui en base trancherait ces
+questions en silence, du côté d'un modèle marketplace qui n'est pas retenu — et
+ces colonnes seraient redessinées de toute façon.
+
+**Pourquoi pas B (migrer tout sauf elles).** Le schéma Prisma et la base
+divergeraient en permanence, et chaque `migrate diff` ultérieur rejouerait
+l'écart. Une dette payée à chaque migration plutôt qu'une fois.
+
+**Ce que le retrait ne touche pas.** Aucune règle de calcul n'a disparu :
+`pricing/breakdown.ts` et `delivery/payout.ts` restent en place et testés, et
+`Order` conserve sa répartition figée — `merchantPayoutCents`,
+`driverPayoutCents`, `platformNetCents`. Ce sont des montants calculés à la
+commande, pas un journal de mouvements : rien n'y est encaissé ni versé. Les
+valeurs `PENDING_PAYMENT` et `PAYMENT_FAILED` d'`OrderStatus` restent également :
+ce sont des états de commande portés par une machine à états déjà écrite et
+testée, pas un modèle de paiement.
+
+**Migration.** `20260901120000_init_perimetre_metier` — 35 tables,
+11 énumérations, 56 clés étrangères, 68 index, plus l'index partiel écrit à la
+main. Appliquée par `prisma migrate deploy` sur PostgreSQL 16.13.
+
+**Divergence vérifiée dans les trois sens, toutes vides :**
+
+| Comparaison | Résultat |
+|---|---|
+| `--from-empty --to-schema-datamodel` | plus aucune trace de `Payment` / `DriverPayout` / `PaymentStatus` |
+| `--from-schema-datamodel --to-schema-datasource` | `-- This is an empty migration.` |
+| `--from-migrations --to-schema-datamodel` | `-- This is an empty migration.` |
+
+**Réintroduction.** Ces modèles reviendront par une migration dédiée, une fois
+les décisions 05 et 09 arrêtées. Leur forme d'origine reste lisible dans
+l'historique git du schéma.

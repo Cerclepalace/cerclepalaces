@@ -180,7 +180,7 @@ documentaire, trois choix :
 | `Product` | Référence de catalogue, voir ci-dessous |
 | `DeliveryAssignment` | Toujours atteinte via `Delivery`, qui est scopée |
 | `DispatchDecision` | Toujours atteinte via `DispatchRound`, qui est scopée |
-| `ProofOfDelivery`, `DriverPayout` | Atteintes via `Delivery` |
+| `ProofOfDelivery` | Atteinte via `Delivery` |
 | `OrderStatusEvent`, `DeliveryStatusEvent` | Atteints via leur agrégat |
 | `Zone` | Référentiel partagé |
 
@@ -242,7 +242,10 @@ juridique en contrainte technique.
 
 ## Rémunération
 
-`calculateDriverPayout()` est pure et déterministe, décomposée poste par poste :
+`calculateDriverPayout()` est pure et déterministe, décomposée poste par poste.
+Son résultat n'est stocké nulle part : la table qui l'aurait accueilli a été
+retirée du schéma avant la première migration (décision 14). Le calcul existe et
+se teste ; le versement, lui, n'est ni modélisé ni effectué.
 base, distance, attente, prime, complément de plancher.
 
 Aucun tarif n'est codé en dur — tout arrive par `PayoutRates`.
