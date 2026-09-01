@@ -17,8 +17,6 @@
  * (docs/TO_VERIFY.md, décision 10).
  */
 
-import { isSellable, type ComplianceStatus } from "../compliance/status.js";
-import { canSell, type MerchantStatus } from "../merchant/status.js";
 
 /**
  * Nature d'une pièce jointe au dossier de conformité.
@@ -123,71 +121,9 @@ export function checkComplianceSubmission(
   return { complete: gaps.length === 0, gaps };
 }
 
-// ---------------------------------------------------------------------------
-// Mise à disposition d'un produit
-// ---------------------------------------------------------------------------
-
-export const AVAILABILITY_BLOCKERS = [
-  "MERCHANT_NOT_ACTIVE",
-  "COMPLIANCE_NOT_APPROVED",
-  "COMPLIANCE_EXPIRED",
-  "NOT_LISTED",
-  "OUT_OF_STOCK",
-  "NO_PRICE",
-] as const;
-
-export type AvailabilityBlocker = (typeof AVAILABILITY_BLOCKERS)[number];
-
-export const AVAILABILITY_BLOCKER_LABEL_FR: Record<AvailabilityBlocker, string> = {
-  MERCHANT_NOT_ACTIVE: "Le shop n'est pas actif",
-  COMPLIANCE_NOT_APPROVED: "La conformité du produit n'est pas validée",
-  COMPLIANCE_EXPIRED: "Le certificat de conformité est expiré",
-  NOT_LISTED: "Le produit n'est pas mis en vente par le shop",
-  OUT_OF_STOCK: "Produit en rupture",
-  NO_PRICE: "Aucun prix défini",
-};
-
-export interface ProductAvailabilityInput {
-  readonly merchantStatus: MerchantStatus;
-  readonly complianceStatus: ComplianceStatus;
-  /** Fin de validité du certificat, ou `null` s'il n'en porte pas. */
-  readonly complianceExpiresAt: Date | null;
-  readonly isListed: boolean;
-  readonly stock: number;
-  readonly priceCents: number | null;
-}
-
-export interface ProductAvailability {
-  readonly orderable: boolean;
-  readonly blockers: readonly AvailabilityBlocker[];
-}
-
-/**
- * Dit si un produit est commandable, et sinon **tout** ce qui l'en empêche.
- *
- * L'expiration est traitée à part du statut : un certificat périmé sur un
- * produit encore marqué `APPROVED` est le cas le plus dangereux du lot, parce
- * qu'il ressemble à un produit conforme. Il est bloqué ici sans attendre que la
- * tâche de fond ait basculé le statut en `EXPIRED` — une garde qui dépend d'un
- * cron n'est pas une garde.
+/*
+ * `evaluateProductAvailability()` vivait ici, avec sa liste
+ * `AVAILABILITY_BLOCKERS`. Supprimée pour la même raison qu'`isOrderable` :
+ * elle ignorait le KYB et toute la politique de catalogue, tout en étant
+ * exportée à côté du portail complet. Voir `listing-gate.ts`.
  */
-export function evaluateProductAvailability(
-  input: ProductAvailabilityInput,
-  now: Date,
-): ProductAvailability {
-  const blockers: AvailabilityBlocker[] = [];
-
-  if (!canSell(input.merchantStatus)) blockers.push("MERCHANT_NOT_ACTIVE");
-  if (!isSellable(input.complianceStatus)) blockers.push("COMPLIANCE_NOT_APPROVED");
-  if (
-    input.complianceExpiresAt !== null &&
-    input.complianceExpiresAt.getTime() <= now.getTime()
-  ) {
-    blockers.push("COMPLIANCE_EXPIRED");
-  }
-  if (!input.isListed) blockers.push("NOT_LISTED");
-  if (input.stock <= 0) blockers.push("OUT_OF_STOCK");
-  if (input.priceCents === null || input.priceCents <= 0) blockers.push("NO_PRICE");
-
-  return { orderable: blockers.length === 0, blockers };
-}

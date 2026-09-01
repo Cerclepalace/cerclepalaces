@@ -90,15 +90,96 @@ Tous les motifs sont rendus ensemble, jamais le premier, et chacun porte un
 détail exploitable — « un taux dépasse le plafond » n'aide personne si on ne dit
 pas lequel ni de combien.
 
-### Les treize motifs de refus
+### Les seize motifs de refus
 
 ```
 MERCHANT_NOT_ACTIVE · MERCHANT_KYB_INCOMPLETE
-COMPLIANCE_NOT_APPROVED · COMPLIANCE_EXPIRED
+COMPLIANCE_NOT_APPROVED · COMPLIANCE_EXPIRED · SUBMISSION_INCOMPLETE
+POLICY_STALE
 CATEGORY_MISSING · CATEGORY_PROHIBITED · CATEGORY_UNDECIDED
-SUBSTANCE_PROHIBITED · ANALYTE_ABOVE_LIMIT · ANALYTE_UNDECIDED
+COMPOSITION_NOT_DECLARED · SUBSTANCE_PROHIBITED
+ANALYTE_NOT_DECLARED · ANALYTE_ABOVE_LIMIT · ANALYTE_UNDECIDED
 NOT_LISTED · OUT_OF_STOCK · NO_PRICE
 ```
+
+## Ce que l'audit adversarial a trouvé, et corrigé
+
+Les 302 tests de la première version étaient verts. Ils décrivaient des
+situations plausibles ; aucun ne cherchait à faire passer un produit qui ne
+devait pas passer. Quatre portes étaient ouvertes.
+
+### Déclarer moins pour être contrôlé moins
+
+Le portail n'examinait que ce qui était **déclaré**. Un produit sans analyte
+déclaré ne voyait aucun plafond appliqué ; une composition vide ne rencontrait
+aucune liste de refus. Le contrôle se contournait en fournissant moins
+d'information, pas plus.
+
+Désormais : chaque analyte que la politique encadre doit être **mesuré**
+(`ANALYTE_NOT_DECLARED`), et une composition vide est un refus
+(`COMPOSITION_NOT_DECLARED`).
+
+### `NaN` franchissait tous les plafonds
+
+En JavaScript, `NaN > 0.3` vaut `false`. La comparaison seule renvoyait donc la
+branche « conforme ». Un taux négatif y passait aussi, et un taux de 999 %
+n'alertait personne — le certificat, lui, n'inspectait que la valeur `null`.
+
+Désormais : toute mesure doit être finie, positive et ≤ 100. À défaut,
+`INVALID_MEASUREMENT`, qui bloque.
+
+### La liste de refus se contournait par l'orthographe
+
+La normalisation était `trim().toLowerCase()`. La même fonction servait une
+liste d'**autorisation** (échec ⇒ non tranché ⇒ bloque) et une liste de
+**refus** (échec ⇒ **laisse passer**). Cette asymétrie de conséquence n'avait pas
+été pensée : quatre écritures d'une même substance échappaient au contrôle, dont
+une avec un tiret demi-cadratin et une avec un omicron grec — invisibles à l'œil.
+
+Désormais : `normaliseSubstance()` décompose l'Unicode, replie les homoglyphes
+grecs et cyrilliques, supprime tout ce qui n'est ni lettre ni chiffre. Les
+substances portent des **alias** explicites, et l'appariement se fait par
+occurrence dans le texte — une composition réelle est faite de phrases, pas de
+jetons.
+
+### Deux portes de plus, l'une plus faible que l'autre
+
+`isOrderable()` et `evaluateProductAvailability()` restaient exportées à côté du
+portail complet. La première ignorait l'état du vendeur, la catégorie, les
+substances et les taux. Deux portes dont l'une est plus faible, c'est une porte.
+Les deux ont été **supprimées**.
+
+### Trois gardes qui existaient sans être branchées
+
+`canActivate()` n'était appelée par aucune garde de transition : un admin pouvait
+activer un shop au dossier vide. `checkComplianceSubmission()` n'était appelée
+nulle part : un produit pouvait être `APPROVED` sans qu'aucun certificat n'ait
+jamais été contrôlé. Et `decidedAt` n'était lu par personne : une politique
+figée depuis des années était traitée comme celle d'aujourd'hui.
+
+Les trois sont désormais dans le chemin : activation refusée sur dossier
+incomplet, `SUBMISSION_INCOMPLETE` au portail, `POLICY_STALE` sur une politique
+jamais revue ou dont la revue a trop vieilli.
+
+### Une preuve datée de 2099 soutenait une autorisation
+
+`supportsAuthorisation()` ne comparait jamais `verifiedAt` à l'horloge. Elle
+reçoit maintenant la date du jour et refuse une vérification datée du futur ou
+portant une date invalide.
+
+## Ces correctifs sont-ils porteurs ?
+
+Chaque correctif a été retiré séparément pour vérifier que les tests le
+détectent. Résultats réels :
+
+| Correctif retiré | Tests devenus rouges |
+|---|---|
+| Validation des mesures | 5 |
+| Exigence de déclaration des analytes | 4 |
+| Garde d'activation | 2 |
+| Normalisation agressive | 1 |
+| Appariement par occurrence | 1 |
+| Validation du mode de libération | 2 |
 
 ## Le parcours, joué du début à la fin
 
@@ -116,6 +197,18 @@ serait ouverte quelque part.
 
 ## Ce qui n'est pas fait
 
+- **Vocabulaires fermés (A-08).** `categorySlug` et `analyte` restent des chaînes
+  libres. Rien n'empêche de déclarer un produit sous une catégorie qui n'est pas
+  la sienne, et rien ne distingue « delta-9 THC » de « THC total ». Une valeur
+  inconnue bloque — l'échec est du bon côté — mais l'étiquetage n'est pas
+  vérifiable.
+- **Revalidation sur changement critique (A-10).** Modifier un numéro
+  d'immatriculation, une raison sociale ou un bénéficiaire effectif ne repasse
+  pas le shop en validation. `checkKybDossier` détecte le **vide**, pas le
+  **changement**.
+- **Règles conditionnelles entre analytes (A-12).** Aucune règle ne peut dépendre
+  de la valeur d'un autre analyte.
+- **Garde automatisée anti-monétaire (A-13).** Les contrôles restent manuels.
 - **Persistance.** La politique, les preuves et les décisions ne sont pas encore
   en base. Le domaine est complet et testé ; il n'a pas d'adaptateur.
 - **Services API et back-office** : saisir une politique, vérifier une preuve,

@@ -64,18 +64,12 @@ export function isSellable(status: ComplianceStatus): boolean {
   return status === "APPROVED";
 }
 
-/**
- * Un produit est réellement commandable s'il est conforme ET disponible chez ce
- * shop précis. La disponibilité vient de `Inventory` (par MerchantLocation),
- * jamais du catalogue global.
+/*
+ * `isOrderable()` vivait ici. Elle a été supprimée : elle ne regardait ni
+ * l'état du vendeur, ni la catégorie, ni les substances, ni les taux, et restait
+ * exportée aux côtés du portail complet. Deux portes dont l'une est plus faible,
+ * c'est une porte. Tout passe désormais par `evaluateListing()`.
  */
-export function isOrderable(input: {
-  readonly compliance: ComplianceStatus;
-  readonly stock: number;
-  readonly listedByMerchant: boolean;
-}): boolean {
-  return isSellable(input.compliance) && input.listedByMerchant && input.stock > 0;
-}
 
 export const COMPLIANCE_STATUS_LABEL_FR: Record<ComplianceStatus, string> = {
   PENDING_REVIEW: "En cours de vérification",

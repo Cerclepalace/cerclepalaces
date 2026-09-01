@@ -19,10 +19,13 @@
 
 import { isSellable, type ComplianceStatus } from "../compliance/status.js";
 import { canSell, checkKybDossier, type KybDossier, type MerchantStatus } from "../merchant/status.js";
+import { checkComplianceSubmission, type ComplianceSubmission } from "./publication.js";
 import {
+  checkPolicyFreshness,
   decideAnalyte,
   decideCategory,
   findProhibitedSubstances,
+  normaliseSubstance,
   type CataloguePolicy,
   type DeclaredAnalyte,
 } from "./policy.js";
@@ -34,11 +37,15 @@ export const LISTING_BLOCKERS = [
   // --- Conformité du produit ---
   "COMPLIANCE_NOT_APPROVED",
   "COMPLIANCE_EXPIRED",
+  "SUBMISSION_INCOMPLETE",
   // --- Politique de catalogue ---
+  "POLICY_STALE",
   "CATEGORY_MISSING",
   "CATEGORY_PROHIBITED",
   "CATEGORY_UNDECIDED",
+  "COMPOSITION_NOT_DECLARED",
   "SUBSTANCE_PROHIBITED",
+  "ANALYTE_NOT_DECLARED",
   "ANALYTE_ABOVE_LIMIT",
   "ANALYTE_UNDECIDED",
   // --- Disponibilité commerciale ---
@@ -54,10 +61,14 @@ export const LISTING_BLOCKER_LABEL_FR: Record<ListingBlocker, string> = {
   MERCHANT_KYB_INCOMPLETE: "Le dossier du shop est incomplet",
   COMPLIANCE_NOT_APPROVED: "La conformité du produit n'est pas validée",
   COMPLIANCE_EXPIRED: "Le certificat de conformité est expiré",
+  SUBMISSION_INCOMPLETE: "Le dossier de conformité est incomplet",
+  POLICY_STALE: "La politique de catalogue n'a pas été revue à temps",
   CATEGORY_MISSING: "Le produit n'est rattaché à aucune catégorie",
   CATEGORY_PROHIBITED: "Cette catégorie n'est pas distribuée par la plateforme",
   CATEGORY_UNDECIDED: "Cette catégorie n'a pas encore été tranchée",
+  COMPOSITION_NOT_DECLARED: "Aucune composition n'est déclarée",
   SUBSTANCE_PROHIBITED: "La composition déclare une substance non distribuée",
+  ANALYTE_NOT_DECLARED: "Un analyte encadré par la politique n'est pas mesuré",
   ANALYTE_ABOVE_LIMIT: "Un taux déclaré dépasse le plafond de la politique",
   ANALYTE_UNDECIDED: "Un taux déclaré relève d'une règle non tranchée",
   NOT_LISTED: "Le produit n'est pas mis en vente par le shop",
@@ -81,6 +92,15 @@ export interface ListingCandidate {
   readonly kyb: KybDossier;
   readonly complianceStatus: ComplianceStatus;
   readonly complianceExpiresAt: Date | null;
+  /**
+   * Le dossier réellement déposé.
+   *
+   * Exigé ici parce qu'un audit a montré que `checkComplianceSubmission` n'était
+   * appelée nulle part : un produit pouvait être `APPROVED` sans qu'aucun
+   * dossier — certificat d'analyse, lot, fournisseur — n'ait jamais été
+   * contrôlé. Un statut est le résultat d'un examen, pas sa preuve.
+   */
+  readonly submission: ComplianceSubmission;
   /** `null` si le produit n'est rattaché à aucune catégorie. */
   readonly categorySlug: string | null;
   readonly declaredComposition: readonly string[];
@@ -131,6 +151,10 @@ export function evaluateListing(
   if (!isSellable(candidate.complianceStatus)) {
     refuse("COMPLIANCE_NOT_APPROVED", `Statut de conformité : ${candidate.complianceStatus}.`);
   }
+  const dossier = checkComplianceSubmission(candidate.submission, now);
+  if (!dossier.complete) {
+    refuse("SUBMISSION_INCOMPLETE", `Dossier incomplet : ${dossier.gaps.join(", ")}.`);
+  }
   if (
     candidate.complianceExpiresAt !== null &&
     candidate.complianceExpiresAt.getTime() <= now.getTime()
@@ -144,10 +168,22 @@ export function evaluateListing(
   }
 
   // --- Politique de catalogue ---
+  // La fraîcheur est contrôlée avant le contenu : appliquer une politique
+  // périmée avec assurance serait pire que de la déclarer périmée.
+  const fraîcheur = checkPolicyFreshness(policy, now);
+  if (!fraîcheur.fresh) {
+    refuse(
+      "POLICY_STALE",
+      fraîcheur.cause === "NEVER_REVIEWED"
+        ? "La politique n'a jamais été revue."
+        : "La revue de politique est en retard.",
+    );
+  }
+
   if (candidate.categorySlug === null || candidate.categorySlug.trim() === "") {
     refuse("CATEGORY_MISSING", "Aucune catégorie n'est rattachée au produit.");
   } else {
-    const verdict = decideCategory(policy, candidate.categorySlug);
+    const verdict = decideCategory(policy, candidate.categorySlug, now);
     if (verdict.decision === "PROHIBITED") {
       refuse("CATEGORY_PROHIBITED", `Catégorie « ${candidate.categorySlug} » écartée par la politique.`);
     } else if (verdict.decision === "UNDECIDED") {
@@ -160,12 +196,34 @@ export function evaluateListing(
     }
   }
 
-  for (const substance of findProhibitedSubstances(policy, candidate.declaredComposition)) {
+  // Une composition vide n'est pas une composition propre : sans déclaration,
+  // la liste de refus n'a rien à examiner et laisse tout passer.
+  const compositionUtile = candidate.declaredComposition.filter(
+    (ligne) => ligne.trim() !== "",
+  );
+  if (compositionUtile.length === 0) {
+    refuse("COMPOSITION_NOT_DECLARED", "La composition déclarée est vide.");
+  }
+
+  for (const substance of findProhibitedSubstances(policy, compositionUtile)) {
     refuse("SUBSTANCE_PROHIBITED", `Substance déclarée : ${substance}.`);
   }
 
+  // Chaque analyte que la politique encadre doit être **mesuré**. Sans cette
+  // exigence, ne rien déclarer suffisait à sauter entièrement le contrôle des
+  // plafonds — le produit passait avec zéro analyse.
+  const mesurés = new Set(
+    candidate.declaredAnalytes.map((declared) => normaliseSubstance(declared.analyte)),
+  );
+  for (const rule of policy.analytes) {
+    if (rule.decision !== "RESTRICTED") continue;
+    if (!mesurés.has(normaliseSubstance(rule.analyte))) {
+      refuse("ANALYTE_NOT_DECLARED", `${rule.analyte} n'est pas mesuré au dossier.`);
+    }
+  }
+
   for (const declared of candidate.declaredAnalytes) {
-    const verdict = decideAnalyte(policy, declared);
+    const verdict = decideAnalyte(policy, declared, now);
     if (verdict.decision === "ABOVE_LIMIT") {
       refuse(
         "ANALYTE_ABOVE_LIMIT",

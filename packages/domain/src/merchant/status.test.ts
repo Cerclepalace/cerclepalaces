@@ -68,22 +68,22 @@ describe("machine d'état du shop", () => {
   });
 
   it("refuse une transition inexistante", () => {
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "SUSPENDED", "admin")).toThrow(
+    expect(() => assertMerchantTransition("PENDING_VALIDATION", "SUSPENDED", "admin", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
   });
 
   it("refuse un acteur non habilité", () => {
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "support_agent")).toThrow(
+    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "support_agent", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "merchant_owner")).toThrow(
+    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "merchant_owner", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
   });
 
   it("accepte le chemin nominal", () => {
-    expect(assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "admin").to).toBe("ACTIVE");
+    expect(assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "admin", dossierComplet()).to).toBe("ACTIVE");
   });
 });
 

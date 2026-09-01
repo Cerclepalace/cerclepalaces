@@ -45,6 +45,8 @@ const POLITIQUE: CataloguePolicy = {
     { analyte: "THC", decision: "RESTRICTED", maxPercent: 0.3, evidenceIds: ["ev_source"], decidedAt: NOW },
     { analyte: "CBD", decision: "UNRESTRICTED", maxPercent: null, evidenceIds: [], decidedAt: NOW },
   ],
+  reviewedAt: NOW,
+  maxAgeDays: 180,
 };
 
 const dossierVide: KybDossier = {
@@ -65,7 +67,18 @@ const dossierComplet: KybDossier = {
   ownerCount: 1,
 };
 
+const dossierCoa = {
+  productName: "Fleur CBD — Amnesia",
+  batchNumber: "LOT-2026-0417",
+  supplier: "Chanvre du Sud SARL",
+  thcContent: 0.2,
+  cbdContent: 12.4,
+  expiresAt: jours(365),
+  documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
+} as const;
+
 const produit = (overrides: Partial<ListingCandidate>): ListingCandidate => ({
+  submission: dossierCoa,
   merchantStatus: "PENDING_VALIDATION",
   kyb: dossierVide,
   complianceStatus: "PENDING_REVIEW",
@@ -95,9 +108,11 @@ describe("vendeur → produit → conformité → mise en vente", () => {
     dossier = dossierComplet;
     expect(canActivate(dossier)).toEqual({ ok: true });
     // Le shop ne peut toujours pas se valider lui-même.
-    expect(() => assertMerchantTransition(statutShop, "ACTIVE", "merchant_owner")).toThrow();
+    expect(() =>
+      assertMerchantTransition(statutShop, "ACTIVE", "merchant_owner", dossier),
+    ).toThrow();
 
-    statutShop = assertMerchantTransition(statutShop, "ACTIVE", "admin").to;
+    statutShop = assertMerchantTransition(statutShop, "ACTIVE", "admin", dossier).to;
     expect(statutShop).toBe("ACTIVE");
 
     // --- 3. Il dépose un produit. Sans COA, le dossier n'est pas déposable. ---

@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPLIANCE_STATUSES,
   canChangeCompliance,
-  isOrderable,
   isSellable,
-  type ComplianceStatus,
 } from "./status.js";
 
 describe("isSellable", () => {
@@ -16,28 +14,6 @@ describe("isSellable", () => {
   });
 });
 
-describe("isOrderable", () => {
-  const base = { compliance: "APPROVED" as ComplianceStatus, stock: 5, listedByMerchant: true };
-
-  it("accepte un produit conforme, listé et en stock", () => {
-    expect(isOrderable(base)).toBe(true);
-  });
-
-  it("refuse un produit en stock mais non conforme", () => {
-    for (const status of COMPLIANCE_STATUSES) {
-      if (status === "APPROVED") continue;
-      expect(isOrderable({ ...base, compliance: status })).toBe(false);
-    }
-  });
-
-  it("refuse un produit conforme mais en rupture chez ce shop", () => {
-    expect(isOrderable({ ...base, stock: 0 })).toBe(false);
-  });
-
-  it("refuse un produit conforme et en stock mais retiré par le commerçant", () => {
-    expect(isOrderable({ ...base, listedByMerchant: false })).toBe(false);
-  });
-});
 
 describe("transitions de conformité", () => {
   it("réserve la validation à l'admin", () => {

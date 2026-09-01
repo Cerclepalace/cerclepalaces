@@ -25,40 +25,42 @@ const preuve = (overrides: Partial<LegalEvidence> = {}): LegalEvidence => ({
 
 const politique = (overrides: Partial<CataloguePolicy> = {}): CataloguePolicy => ({
   ...EMPTY_CATALOGUE_POLICY,
+  reviewedAt: NOW,
+  maxAgeDays: 180,
   ...overrides,
 });
 
 describe("preuve juridique", () => {
   it("soutient une autorisation quand elle est vérifiée, datée et attribuée", () => {
-    expect(supportsAuthorisation(preuve())).toBe(true);
+    expect(supportsAuthorisation(preuve(), NOW)).toBe(true);
   });
 
   it("ne soutient rien tant qu'elle n'est pas vérifiée", () => {
-    expect(supportsAuthorisation(preuve({ status: "UNVERIFIED" }))).toBe(false);
+    expect(supportsAuthorisation(preuve({ status: "UNVERIFIED" }), NOW)).toBe(false);
   });
 
   it("cesse de soutenir une autorisation une fois remplacée", () => {
     // Elle reste dans l'historique — c'est ce qui explique une décision passée —
     // mais elle ne porte plus rien.
-    expect(supportsAuthorisation(preuve({ status: "SUPERSEDED" }))).toBe(false);
+    expect(supportsAuthorisation(preuve({ status: "SUPERSEDED" }), NOW)).toBe(false);
   });
 
   it("refuse une case cochée sans vérificateur ni date", () => {
     // « VERIFIED » sans auteur n'est pas une vérification.
-    expect(supportsAuthorisation(preuve({ verifiedBy: null }))).toBe(false);
-    expect(supportsAuthorisation(preuve({ verifiedBy: "   " }))).toBe(false);
-    expect(supportsAuthorisation(preuve({ verifiedAt: null }))).toBe(false);
+    expect(supportsAuthorisation(preuve({ verifiedBy: null }), NOW)).toBe(false);
+    expect(supportsAuthorisation(preuve({ verifiedBy: "   " }), NOW)).toBe(false);
+    expect(supportsAuthorisation(preuve({ verifiedAt: null }), NOW)).toBe(false);
   });
 });
 
 describe("politique vide", () => {
   it("n'autorise rien", () => {
     // Le comportement correct d'un système qui ne sait pas encore.
-    expect(decideCategory(EMPTY_CATALOGUE_POLICY, "fleurs-cbd")).toEqual({
+    expect(decideCategory(EMPTY_CATALOGUE_POLICY, "fleurs-cbd", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "NO_RULE",
     });
-    expect(decideAnalyte(EMPTY_CATALOGUE_POLICY, { analyte: "THC", percent: 0.2 })).toMatchObject({
+    expect(decideAnalyte(EMPTY_CATALOGUE_POLICY, { analyte: "THC", percent: 0.2 }, NOW)).toMatchObject({
       decision: "UNDECIDED",
       cause: "NO_RULE",
     });
@@ -80,13 +82,13 @@ describe("catégories", () => {
   });
 
   it("autorise une catégorie soutenue par une preuve vérifiée", () => {
-    const verdict = decideCategory(autorisée, "fleurs-cbd");
+    const verdict = decideCategory(autorisée, "fleurs-cbd", NOW);
     expect(verdict.decision).toBe("ALLOWED");
     if (verdict.decision === "ALLOWED") expect(verdict.evidence).toHaveLength(1);
   });
 
   it("ignore la casse et les espaces du slug", () => {
-    expect(decideCategory(autorisée, "  Fleurs-CBD ").decision).toBe("ALLOWED");
+    expect(decideCategory(autorisée, "  Fleurs-CBD ", NOW).decision).toBe("ALLOWED");
   });
 
   it("interdit sans exiger de preuve", () => {
@@ -97,12 +99,12 @@ describe("catégories", () => {
         { categorySlug: "comestibles", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "comestibles").decision).toBe("PROHIBITED");
+    expect(decideCategory(p, "comestibles", NOW).decision).toBe("PROHIBITED");
   });
 
   it("rend une catégorie jamais examinée indécise, pas autorisée", () => {
     // Le cas qui existe réellement aujourd'hui sur presque tout.
-    expect(decideCategory(autorisée, "resines")).toEqual({
+    expect(decideCategory(autorisée, "resines", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "NO_RULE",
     });
@@ -115,7 +117,7 @@ describe("catégories", () => {
         { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd")).toEqual({
+    expect(decideCategory(p, "fleurs-cbd", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "AUTHORISATION_UNSUPPORTED",
     });
@@ -130,7 +132,7 @@ describe("catégories", () => {
         { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd")).toEqual({
+    expect(decideCategory(p, "fleurs-cbd", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "AUTHORISATION_UNSUPPORTED",
     });
@@ -152,7 +154,7 @@ describe("catégories", () => {
         },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd").decision).toBe("ALLOWED");
+    expect(decideCategory(p, "fleurs-cbd", NOW).decision).toBe("ALLOWED");
   });
 
   it("ne se laisse pas soutenir par une preuve qu'elle ne cite pas", () => {
@@ -162,15 +164,15 @@ describe("catégories", () => {
         { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_absente"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd").decision).toBe("UNDECIDED");
+    expect(decideCategory(p, "fleurs-cbd", NOW).decision).toBe("UNDECIDED");
   });
 });
 
 describe("substances prohibées", () => {
   const p = politique({
     prohibitedSubstances: [
-      { substance: "Substance-A", evidenceIds: [], decidedAt: NOW },
-      { substance: "Substance-B", evidenceIds: [], decidedAt: NOW },
+      { substance: "Substance-A", aliases: [], evidenceIds: [], decidedAt: NOW },
+      { substance: "Substance-B", aliases: [], evidenceIds: [], decidedAt: NOW },
     ],
   });
 
@@ -204,7 +206,7 @@ describe("analytes mesurés", () => {
   });
 
   it("accepte un taux sous le plafond configuré", () => {
-    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.2 })).toMatchObject({
+    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.2 }, NOW)).toMatchObject({
       decision: "WITHIN_LIMIT",
       maxPercent: 0.3,
     });
@@ -212,11 +214,11 @@ describe("analytes mesurés", () => {
 
   it("accepte un taux exactement égal au plafond", () => {
     // « au plus 0,3 % » n'est pas « moins de 0,3 % ».
-    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.3 }).decision).toBe("WITHIN_LIMIT");
+    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.3 }, NOW).decision).toBe("WITHIN_LIMIT");
   });
 
   it("refuse un taux au-dessus du plafond, en disant lequel et de combien", () => {
-    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.31 })).toEqual({
+    expect(decideAnalyte(restreint, { analyte: "THC", percent: 0.31 }, NOW)).toEqual({
       analyte: "THC",
       decision: "ABOVE_LIMIT",
       declaredPercent: 0.31,
@@ -227,7 +229,7 @@ describe("analytes mesurés", () => {
   it("refuse de statuer quand aucune règle n'existe", () => {
     // C'est ce refus qui garantit qu'aucun seuil ne s'est glissé dans le code
     // sans avoir été décidé.
-    expect(decideAnalyte(restreint, { analyte: "CBN", percent: 1 })).toEqual({
+    expect(decideAnalyte(restreint, { analyte: "CBN", percent: 1 }, NOW)).toEqual({
       analyte: "CBN",
       decision: "UNDECIDED",
       cause: "NO_RULE",
@@ -241,7 +243,7 @@ describe("analytes mesurés", () => {
         { analyte: "THC", decision: "RESTRICTED", maxPercent: 0.3, evidenceIds: ["ev_seuil"], decidedAt: NOW },
       ],
     });
-    expect(decideAnalyte(p, { analyte: "THC", percent: 0.1 })).toEqual({
+    expect(decideAnalyte(p, { analyte: "THC", percent: 0.1 }, NOW)).toEqual({
       analyte: "THC",
       decision: "UNDECIDED",
       cause: "RESTRICTION_UNSUPPORTED",
@@ -255,7 +257,7 @@ describe("analytes mesurés", () => {
         { analyte: "THC", decision: "RESTRICTED", maxPercent: null, evidenceIds: ["ev_seuil"], decidedAt: NOW },
       ],
     });
-    expect(decideAnalyte(p, { analyte: "THC", percent: 0.1 })).toEqual({
+    expect(decideAnalyte(p, { analyte: "THC", percent: 0.1 }, NOW)).toEqual({
       analyte: "THC",
       decision: "UNDECIDED",
       cause: "NO_LIMIT_SET",
@@ -268,14 +270,14 @@ describe("analytes mesurés", () => {
     const p = politique({
       analytes: [{ analyte: "CBD", decision: "UNRESTRICTED", maxPercent: null, evidenceIds: [], decidedAt: NOW }],
     });
-    expect(decideAnalyte(p, { analyte: "CBD", percent: 22 })).toEqual({
+    expect(decideAnalyte(p, { analyte: "CBD", percent: 22 }, NOW)).toEqual({
       analyte: "CBD",
       decision: "UNRESTRICTED",
     });
   });
 
   it("ignore la casse du nom d'analyte", () => {
-    expect(decideAnalyte(restreint, { analyte: " thc ", percent: 0.1 }).decision).toBe(
+    expect(decideAnalyte(restreint, { analyte: " thc ", percent: 0.1 }, NOW).decision).toBe(
       "WITHIN_LIMIT",
     );
   });

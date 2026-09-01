@@ -137,10 +137,20 @@ export class MerchantTransitionError extends Error {
   }
 }
 
+/**
+ * Applique une transition de shop.
+ *
+ * Le dossier est **obligatoire**, y compris pour les transitions qui ne le
+ * regardent pas. `canActivate` existait sans être appelée par cette garde : un
+ * admin pouvait activer un shop au dossier vide, et seule la mise en vente le
+ * rattrapait plus tard. Une garde disponible mais non câblée n'est pas une
+ * garde ; la rendre inévitable coûte un paramètre.
+ */
 export function assertMerchantTransition(
   from: MerchantStatus,
   to: MerchantStatus,
   actor: Actor,
+  dossier: KybDossier,
 ): MerchantTransition {
   const transition = findMerchantTransition(from, to);
 
@@ -160,6 +170,18 @@ export function assertMerchantTransition(
       to,
       actor,
     );
+  }
+
+  if (to === "ACTIVE") {
+    const activation = canActivate(dossier);
+    if (!activation.ok) {
+      throw new MerchantTransitionError(
+        `Activation impossible, dossier incomplet : ${activation.gaps.join(", ")}.`,
+        from,
+        to,
+        actor,
+      );
+    }
   }
 
   return transition;

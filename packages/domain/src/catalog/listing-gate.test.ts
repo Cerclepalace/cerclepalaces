@@ -29,11 +29,13 @@ const POLITIQUE: CataloguePolicy = {
     { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
     { categorySlug: "comestibles", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
   ],
-  prohibitedSubstances: [{ substance: "Substance-A", evidenceIds: [], decidedAt: NOW }],
+  prohibitedSubstances: [{ substance: "Substance-A", aliases: ["SubA"], evidenceIds: [], decidedAt: NOW }],
   analytes: [
     { analyte: "THC", decision: "RESTRICTED", maxPercent: 0.3, evidenceIds: ["ev_source"], decidedAt: NOW },
     { analyte: "CBD", decision: "UNRESTRICTED", maxPercent: null, evidenceIds: [], decidedAt: NOW },
   ],
+  reviewedAt: NOW,
+  maxAgeDays: 180,
 };
 
 const kybComplet: KybDossier = {
@@ -46,7 +48,19 @@ const kybComplet: KybDossier = {
   ownerCount: 1,
 };
 
+/** Dossier de conformité complet, réutilisé par toutes les fabriques. */
+const dossierComplet = {
+  productName: "Fleur CBD — Amnesia",
+  batchNumber: "LOT-2026-0417",
+  supplier: "Chanvre du Sud SARL",
+  thcContent: 0.2,
+  cbdContent: 12.4,
+  expiresAt: jours(365),
+  documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
+} as const;
+
 const candidat = (overrides: Partial<ListingCandidate> = {}): ListingCandidate => ({
+  submission: dossierComplet,
   merchantStatus: "ACTIVE",
   kyb: kybComplet,
   complianceStatus: "APPROVED",
@@ -180,14 +194,19 @@ describe("politique de catalogue", () => {
       POLITIQUE,
       NOW,
     );
-    expect(verdict.blockers).toEqual(["ANALYTE_UNDECIDED"]);
+    // Deux motifs, et c'est juste : le THC encadré n'est plus mesuré, et le CBN
+    // déclaré relève d'une règle inexistante.
+    expect(verdict.blockers).toEqual(["ANALYTE_NOT_DECLARED", "ANALYTE_UNDECIDED"]);
   });
 
   it("bloque tout sous une politique vide", () => {
     // Un environnement neuf ne vend rien tant que personne n'a rien tranché.
     const verdict = evaluateListing(candidat(), EMPTY_CATALOGUE_POLICY, NOW);
     expect(verdict.listable).toBe(false);
+    // Une politique vide n'a jamais été revue : elle est périmée par
+    // construction, en plus de ne rien trancher.
     expect(verdict.blockers).toEqual([
+      "POLICY_STALE",
       "CATEGORY_UNDECIDED",
       "ANALYTE_UNDECIDED",
       "ANALYTE_UNDECIDED",
@@ -215,6 +234,7 @@ describe("forme du verdict", () => {
     // qu'il lui manque un prix.
     const verdict = evaluateListing(
       {
+        submission: dossierComplet,
         merchantStatus: "SUSPENDED",
         kyb: { ...kybComplet, legalName: null },
         complianceStatus: "PENDING_REVIEW",

@@ -7,7 +7,7 @@
  */
 
 import type { Actor } from "../roles.js";
-import type { OrderFulfillmentMode, OrderStatus } from "./status.js";
+import { isOrderFulfillmentMode, type OrderFulfillmentMode, type OrderStatus } from "./status.js";
 
 export interface OrderTransition {
   readonly from: OrderStatus;
@@ -99,22 +99,26 @@ const BY_FROM: ReadonlyMap<OrderStatus, readonly OrderTransition[]> = (() => {
 })();
 
 /**
- * Mode retenu quand l'appelant n'en donne pas.
+ * Aucun mode par défaut, nulle part.
  *
- * `EXTERNAL_CONFIRMATION` délibérément, et pas « tous les modes » : un appelant
- * qui oublie le mode se verra refuser le passage direct `CART → ACCEPTED` — un
- * échec visible — plutôt que d'ouvrir sans le savoir un chemin qui contourne la
- * confirmation attendue.
+ * Une valeur par défaut, même choisie prudemment, est une décision prise en
+ * silence à la place de l'appelant. Un audit a montré qu'un `undefined` était
+ * alors traité comme `EXTERNAL_CONFIRMATION` : le mode d'une commande devenait
+ * une supposition. Le mode est désormais obligatoire, et une valeur qui n'est
+ * pas l'une des deux déclarées est rejetée plutôt qu'interprétée.
  */
-const MODE_PAR_DÉFAUT: OrderFulfillmentMode = "EXTERNAL_CONFIRMATION";
-
 function existsInMode(transition: OrderTransition, mode: OrderFulfillmentMode): boolean {
+  // Une transition sans restriction existe dans les deux modes — mais seulement
+  // pour un mode réel. Sans ce second contrôle, une valeur corrompue traversait
+  // sans encombre toute la partie non restreinte du parcours, c'est-à-dire sa
+  // plus grande partie.
+  if (!isOrderFulfillmentMode(mode)) return false;
   return transition.modes === undefined || transition.modes.includes(mode);
 }
 
 export function outgoingTransitions(
   from: OrderStatus,
-  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode,
 ): readonly OrderTransition[] {
   return (BY_FROM.get(from) ?? []).filter((transition) => existsInMode(transition, mode));
 }
@@ -122,7 +126,7 @@ export function outgoingTransitions(
 export function findTransition(
   from: OrderStatus,
   to: OrderStatus,
-  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode,
 ): OrderTransition | undefined {
   return outgoingTransitions(from, mode).find((transition) => transition.to === to);
 }
@@ -131,7 +135,7 @@ export function findTransition(
 export function allowedNextStatuses(
   from: OrderStatus,
   actor: Actor,
-  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode,
 ): readonly OrderStatus[] {
   return outgoingTransitions(from, mode)
     .filter((transition) => transition.actors.includes(actor))
@@ -142,7 +146,11 @@ export type TransitionCheck =
   | { readonly ok: true; readonly transition: OrderTransition }
   | {
       readonly ok: false;
-      readonly code: "UNKNOWN_TRANSITION" | "ACTOR_NOT_ALLOWED" | "MODE_NOT_ALLOWED";
+      readonly code:
+        | "UNKNOWN_TRANSITION"
+        | "ACTOR_NOT_ALLOWED"
+        | "MODE_NOT_ALLOWED"
+        | "MODE_INVALID";
       readonly message: string;
     };
 
@@ -150,8 +158,20 @@ export function checkTransition(
   from: OrderStatus,
   to: OrderStatus,
   actor: Actor,
-  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode,
 ): TransitionCheck {
+  // Le mode est validé avant toute chose, et son échec porte un code distinct :
+  // « ce mode n'existe pas » et « cette transition n'existe pas dans ce mode »
+  // sont deux incidents différents. Le premier signale une donnée corrompue ou
+  // absente, le second un parcours mal suivi.
+  if (!isOrderFulfillmentMode(mode)) {
+    return {
+      ok: false,
+      code: "MODE_INVALID",
+      message: `Mode de libération absent ou inconnu : ${JSON.stringify(mode)}.`,
+    };
+  }
+
   const transition = findTransition(from, to, mode);
 
   if (!transition) {
@@ -188,7 +208,11 @@ export function checkTransition(
 
 export class OrderTransitionError extends Error {
   constructor(
-    readonly code: "UNKNOWN_TRANSITION" | "ACTOR_NOT_ALLOWED" | "MODE_NOT_ALLOWED",
+    readonly code:
+      | "UNKNOWN_TRANSITION"
+      | "ACTOR_NOT_ALLOWED"
+      | "MODE_NOT_ALLOWED"
+      | "MODE_INVALID",
     message: string,
   ) {
     super(message);
@@ -204,7 +228,7 @@ export function assertTransition(
   from: OrderStatus,
   to: OrderStatus,
   actor: Actor,
-  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode,
 ): OrderTransition {
   const result = checkTransition(from, to, actor, mode);
   if (!result.ok) throw new OrderTransitionError(result.code, result.message);

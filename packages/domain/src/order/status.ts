@@ -91,6 +91,18 @@ export const ORDER_FULFILLMENT_MODES = ["EXTERNAL_CONFIRMATION", "MERCHANT_DIREC
 
 export type OrderFulfillmentMode = (typeof ORDER_FULFILLMENT_MODES)[number];
 
+/**
+ * Garde de type sur le mode.
+ *
+ * Le typage TypeScript ne survit pas à la frontière du processus : une valeur
+ * lue en base, désérialisée d'un JSON ou passée par un `as` traverse le
+ * compilateur sans être vue. Cette fonction est le seul endroit où le mode est
+ * réellement validé, et tout ce qui le consomme doit passer par elle.
+ */
+export function isOrderFulfillmentMode(value: unknown): value is OrderFulfillmentMode {
+  return typeof value === "string" && (ORDER_FULFILLMENT_MODES as readonly string[]).includes(value);
+}
+
 export const ORDER_FULFILLMENT_MODE_LABEL_FR: Record<OrderFulfillmentMode, string> = {
   EXTERNAL_CONFIRMATION: "En attente d'une confirmation extérieure",
   MERCHANT_DIRECT: "Transmise directement au shop",
@@ -113,16 +125,20 @@ export function isPaymentState(status: OrderStatus): boolean {
  * vente retenu (voir docs/TO_VERIFY.md, décisions 05 et 07).
  *
  * En `MERCHANT_DIRECT`, la réponse est toujours « non » : le flux ne traverse
- * aucun état de paiement, donc rien n'a pu être encaissé. Le paramètre a pour
- * valeur par défaut le mode le plus prudent, pour qu'un appelant qui l'oublie
- * obtienne « oui » plutôt qu'un silence — une question de remboursement posée à
- * tort se voit ; l'inverse, non.
+ * aucun état de paiement, donc rien n'a pu être encaissé.
+ *
+ * Le mode est **obligatoire**. Il l'a été rendu après qu'un audit a montré
+ * qu'une valeur par défaut, même prudente, est une décision prise en silence à
+ * la place de l'appelant. Un mode illisible rend le résultat prudent — « oui,
+ * cette sortie ouvre une question » — parce qu'une question posée à tort se
+ * voit, alors qu'une question omise, non.
  */
 export function requiresRefundDecision(
   from: OrderStatus,
   to: OrderStatus,
-  mode: OrderFulfillmentMode = "EXTERNAL_CONFIRMATION",
+  mode: OrderFulfillmentMode,
 ): boolean {
+  if (!isOrderFulfillmentMode(mode)) return true;
   if (mode === "MERCHANT_DIRECT") return false;
 
   const paidStates: readonly OrderStatus[] = [
