@@ -27,6 +27,9 @@ import {
   runDispatchRound,
   transitionDelivery,
 } from "./service.js";
+import { createDispatchContextReader } from "./dispatch-context.js";
+import { dispatchDelivery } from "./dispatch-planner.js";
+import { createDriverRepository } from "../drivers/prisma-repository.js";
 import { createDeliveryStore } from "./prisma-repository.js";
 import { buildTestState, driver, plus, T0 } from "./test-helpers.js";
 
@@ -110,6 +113,11 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
           phone: `+3360000000${suffix}`,
           verification: "APPROVED",
           availability: "ONLINE",
+          // Positions réelles : sans elles tous les candidats seraient écartés
+          // pour POSITION_UNKNOWN et les tests de dispatch ne prouveraient rien.
+          lastLat: suffix === "1" ? 48.8687 : 48.8721,
+          lastLng: suffix === "1" ? 2.3653 : 2.3702,
+          lastSeenAt: T0,
         },
       });
       await prisma.driverZone.create({
@@ -133,8 +141,29 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
     await prisma.$disconnect();
   }, 30_000);
 
-  beforeEach(() => {
+  /**
+   * Chaque test repart d'une base identique.
+   *
+   * Sans cela, la charge des drivers s'accumule d'un test à l'autre : la
+   * politique par défaut n'admet qu'une course simultanée, donc une livraison
+   * laissée `ASSIGNED` par un test précédent suffit à rendre un driver
+   * indisponible pour le suivant, qui échoue alors pour une raison qui n'a rien
+   * à voir avec ce qu'il teste.
+   */
+  beforeEach(async () => {
     sequence += 1;
+    await prisma.order.deleteMany({ where: { merchantId: { in: [MERCHANT_A, MERCHANT_B] } } });
+    await prisma.driverAvailabilityLog.deleteMany({
+      where: { driverId: { in: [DRIVER_1, DRIVER_2] } },
+    });
+    await prisma.driver.update({
+      where: { id: DRIVER_1 },
+      data: { availability: "ONLINE", verification: "APPROVED", lastLat: 48.8687, lastLng: 2.3653 },
+    });
+    await prisma.driver.update({
+      where: { id: DRIVER_2 },
+      data: { availability: "ONLINE", verification: "APPROVED", lastLat: 48.8721, lastLng: 2.3702 },
+    });
   });
 
   /** Crée commande + livraison pour le tenant demandé, dans le statut voulu. */
@@ -492,6 +521,165 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
          where "deliveryId" = ${deliveryId} and "driverId" = ${DRIVER_2}
       `;
       expect(rejets).toBe(1);
+    });
+  });
+  describe("dépôt driver et dispatch de bout en bout", () => {
+    it("ne retient que les drivers approuvés, en ligne et dans la zone", async () => {
+      const drivers = createDriverRepository(prisma);
+      const trouvés = await drivers.listDispatchableInZone(ZONE);
+
+      expect(trouvés.map((d) => d.id).sort()).toEqual([DRIVER_1, DRIVER_2].sort());
+      expect(trouvés.every((d) => d.zoneIds.includes(ZONE))).toBe(true);
+      expect(trouvés.every((d) => d.position !== null)).toBe(true);
+      // Zone inconnue : pas d'erreur, une liste vide.
+      expect(await drivers.listDispatchableInZone("zone-qui-n-existe-pas")).toEqual([]);
+    });
+
+    it("compte comme charge les seules courses qui mobilisent le driver", async () => {
+      const drivers = createDriverRepository(prisma);
+      expect((await drivers.findById(DRIVER_1))?.activeDeliveries).toBe(0);
+
+      // Une course en cours compte.
+      await seedDelivery({
+        merchantId: MERCHANT_A,
+        status: "ASSIGNED",
+        assignedDriverId: DRIVER_1,
+      });
+      expect((await drivers.findById(DRIVER_1))?.activeDeliveries).toBe(1);
+
+      // Une course livrée, où il reste attaché pour la traçabilité, ne compte pas.
+      sequence += 1;
+      const livrée = await seedDelivery({
+        merchantId: MERCHANT_A,
+        status: "ASSIGNED",
+        assignedDriverId: DRIVER_1,
+      });
+      await prisma.delivery.update({ where: { id: livrée }, data: { status: "DELIVERED" } });
+      expect((await drivers.findById(DRIVER_1))?.activeDeliveries).toBe(1);
+    });
+
+    it("clôt la période de disponibilité précédente en en ouvrant une nouvelle", async () => {
+      const drivers = createDriverRepository(prisma);
+
+      await drivers.setAvailability({ driverId: DRIVER_2, availability: "ONLINE", now: T0 });
+      await drivers.setAvailability({ driverId: DRIVER_2, availability: "PAUSED", now: plus(600) });
+
+      const périodes = await prisma.driverAvailabilityLog.findMany({
+        where: { driverId: DRIVER_2 },
+        orderBy: { startedAt: "asc" },
+        select: { status: true, startedAt: true, endedAt: true },
+      });
+
+      expect(périodes).toHaveLength(2);
+      expect(périodes[0]).toMatchObject({ status: "ONLINE" });
+      expect(périodes[0]?.endedAt).not.toBeNull();
+      expect(périodes[1]).toMatchObject({ status: "PAUSED", endedAt: null });
+
+      // Passer hors ligne ferme la période courante sans en ouvrir une autre :
+      // l'absence n'est pas une présence à mesurer.
+      await drivers.setAvailability({ driverId: DRIVER_2, availability: "OFFLINE", now: plus(900) });
+      const après = await prisma.driverAvailabilityLog.findMany({ where: { driverId: DRIVER_2 } });
+      expect(après).toHaveLength(2);
+      expect(après.every((période) => période.endedAt !== null)).toBe(true);
+
+    });
+
+    it("lit le point de retrait sur la boutique, pas sur la livraison", async () => {
+      const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+      const contexte = await createDispatchContextReader(prisma).read(scopeA, deliveryId);
+
+      expect(contexte).toMatchObject({
+        ok: true,
+        pickup: { lat: 48.8674, lng: 2.3636 },
+        pickupZoneId: ZONE,
+        roundsRun: 0,
+      });
+    });
+
+    it("hérite la zone de la boutique quand la livraison n'en fige aucune", async () => {
+      const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+      await prisma.delivery.update({ where: { id: deliveryId }, data: { pickupZoneId: null } });
+
+      const contexte = await createDispatchContextReader(prisma).read(scopeA, deliveryId);
+      expect(contexte).toMatchObject({ ok: true, pickupZoneId: ZONE });
+    });
+
+    it("ne laisse pas un shop lire le contexte de dispatch d'un autre", async () => {
+      const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+      const contexte = await createDispatchContextReader(prisma).read(scopeB, deliveryId);
+      expect(contexte).toEqual({ ok: false, reason: "DELIVERY_NOT_FOUND" });
+    });
+
+    it("mène un tour complet : lecture des candidats, offre, journal", async () => {
+      const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+      const deps = {
+        store,
+        drivers: createDriverRepository(prisma),
+        context: createDispatchContextReader(prisma),
+      };
+
+      const résultat = await dispatchDelivery(deps, scopeA, { deliveryId, now: plus(0) });
+
+      expect(résultat.kind).toBe("RAN");
+      if (résultat.kind !== "RAN") return;
+      expect(résultat.outcome.kind).toBe("OFFERS_CREATED");
+
+      const delivery = await readDelivery(deliveryId);
+      expect(delivery.status).toBe("OFFERING");
+
+      // Le driver le plus proche du shop reçoit l'offre.
+      const propositions = await prisma.deliveryAssignment.findMany({
+        where: { deliveryId },
+        select: { driverId: true, rank: true },
+      });
+      expect(propositions).toHaveLength(1);
+      expect(propositions[0]?.driverId).toBe(DRIVER_1);
+
+      // Et l'autre candidat est journalisé, écarté mais visible : c'est ce qui
+      // permettra de répondre plus tard à « pourquoi pas lui ».
+      const décisions = await prisma.dispatchDecision.findMany({
+        where: { deliveryId },
+        select: { driverId: true, decision: true, reason: true, distanceMeters: true },
+      });
+      expect(décisions).toHaveLength(2);
+      const écarté = décisions.find((d) => d.driverId === DRIVER_2);
+      expect(écarté).toMatchObject({ decision: "SKIPPED", reason: "NOT_SELECTED_THIS_ROUND" });
+      expect(écarté?.distanceMeters).toBeGreaterThan(0);
+    });
+
+    it("écarte un driver non localisé avec un motif, sans le rendre invisible", async () => {
+      await prisma.driver.update({
+        where: { id: DRIVER_1 },
+        data: { lastLat: null, lastLng: null },
+      });
+
+      {
+        const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+        const résultat = await dispatchDelivery(
+          {
+            store,
+            drivers: createDriverRepository(prisma),
+            context: createDispatchContextReader(prisma),
+          },
+          scopeA,
+          { deliveryId, now: plus(0) },
+        );
+
+        expect(résultat).toMatchObject({
+          kind: "RAN",
+          outcome: { kind: "OFFERS_CREATED", offered: [DRIVER_2] },
+        });
+
+        const décision = await prisma.dispatchDecision.findFirst({
+          where: { deliveryId, driverId: DRIVER_1 },
+          select: { decision: true, reason: true, distanceMeters: true },
+        });
+        expect(décision).toMatchObject({
+          decision: "SKIPPED",
+          reason: "POSITION_UNKNOWN",
+          distanceMeters: null,
+        });
+      }
     });
   });
 });

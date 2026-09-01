@@ -43,6 +43,27 @@ export function isTerminalDeliveryStatus(status: DeliveryStatus): boolean {
   return DELIVERY_TERMINAL_STATUSES.includes(status);
 }
 
+/**
+ * États où la course mobilise réellement son driver.
+ *
+ * `OFFERING` en est absent : une proposition n'occupe personne tant qu'elle
+ * n'est pas acceptée, sans quoi un driver sollicité par trois courses
+ * paraîtrait saturé alors qu'il n'en a aucune. `DELIVERED` en est absent aussi :
+ * le driver reste attaché à la course pour la traçabilité, mais il est libre.
+ *
+ * Sert au comptage de charge du dispatch (`DriverCandidate.activeDeliveries`) :
+ * la définition vit ici, pas dans un adaptateur, pour qu'il n'y en ait qu'une.
+ */
+export const DRIVER_OCCUPYING_STATUSES: readonly DeliveryStatus[] = [
+  "ASSIGNED",
+  "PICKED_UP",
+  "IN_TRANSIT",
+];
+
+export function occupiesDriver(status: DeliveryStatus): boolean {
+  return DRIVER_OCCUPYING_STATUSES.includes(status);
+}
+
 export interface DeliveryTransition {
   readonly from: DeliveryStatus;
   readonly to: DeliveryStatus;

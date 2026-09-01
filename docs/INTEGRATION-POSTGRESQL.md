@@ -123,8 +123,45 @@ PROJET1_TEST_DATABASE_URL=postgresql://user@host:port/base npm run test -w @cbd/
 
 Sans cette variable, la suite d'intégration est ignorée : un poste sans
 PostgreSQL doit pouvoir lancer `npm test`. Le prix de ce choix est qu'une CI
-muette passerait à côté — d'où le test `sanity`, qui échoue bruyamment si l'URL
-est fournie mais la base absente ou non migrée.
+muette passerait à côté. Deux garde-fous le limitent : si l'URL est fournie mais
+la base injoignable, la préparation échoue et le processus sort en code 1 (même
+si vitest affiche les tests comme « skipped », ce qui prête à confusion) ; et le
+test `sanity` vérifie que la base est réellement migrée et porte bien l'index
+partiel, plutôt que de supposer qu'une connexion réussie suffit.
 
 Le jeu de données est préfixé par exécution et nettoyé en fin de suite : deux
-runs concurrents ne se marchent pas dessus, et aucune ligne ne subsiste.
+runs concurrents ne se marchent pas dessus, et aucune ligne ne subsiste. Chaque
+test repart en outre d'une base identique — sans cela, la charge des drivers
+s'accumule d'un test à l'autre et un test échoue pour une raison étrangère à ce
+qu'il vérifie.
+
+## Ce qui a été branché sur la base
+
+La couche qui manquait entre le moteur pur et la base : lire les candidats,
+lire le point de retrait, faire tourner le tour.
+
+- `drivers/prisma-repository.ts` — dépôt driver, **volontairement non tenanté** :
+  un driver appartient au réseau, pas à un shop. Le scoper par `merchantId`
+  découperait la flotte par boutique, c'est-à-dire détruirait l'intérêt d'un
+  réseau mutualisé. L'étanchéité est déplacée, pas perdue : ce dépôt ne rend que
+  des candidats, jamais de donnée commerciale, et toute lecture de course passe
+  par le dépôt scopé.
+- `deliveries/dispatch-context.ts` — lit le point de retrait (qui vient de la
+  boutique, pas de la livraison), la zone, et le nombre de tours déjà joués.
+- `deliveries/dispatch-planner.ts` — assemble l'état et lance le tour. N'ajoute
+  aucune règle : tout ce qui décide vit dans `@cbd/domain`.
+- `composition.ts` — la seule racine qui connaît Prisma.
+
+Le garde-fou statique relit désormais ces fichiers aussi, et accepte les
+requêtes du dépôt driver **une par une, avec justification écrite**. Il a été
+étendu au passage : il ne lisait que les appels écrits `db.*` et manquait ceux
+écrits `tx.*` dans une transaction imbriquée.
+
+### Un driver sans position
+
+Le moteur exigeait une position. La couche base aurait donc dû écarter elle-même
+les drivers non localisés — et cette exclusion aurait disparu du journal de
+dispatch, alors que tout l'intérêt de ce journal est de pouvoir répondre plus
+tard à « pourquoi pas lui ». `DriverCandidate.position` est devenu nullable et
+le moteur écarte lui-même, avec un motif nommé : `POSITION_UNKNOWN`, distance
+`null` — et non zéro, qui l'aurait classé premier.

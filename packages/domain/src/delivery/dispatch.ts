@@ -69,6 +69,7 @@ export const DISPATCH_REASONS = [
   "OUTSIDE_ZONE",
   "ALREADY_ASSIGNED",
   "ALREADY_OFFERED",
+  "POSITION_UNKNOWN",
   "TOO_FAR",
   "CATEGORY_NOT_SUPPORTED",
   "AT_CAPACITY",
@@ -88,6 +89,7 @@ export const EXCLUSION_REASONS: readonly DispatchReason[] = [
   "OUTSIDE_ZONE",
   "ALREADY_ASSIGNED",
   "ALREADY_OFFERED",
+  "POSITION_UNKNOWN",
   "TOO_FAR",
   "CATEGORY_NOT_SUPPORTED",
   "AT_CAPACITY",
@@ -103,7 +105,15 @@ export interface DriverCandidate {
   readonly availability: DriverAvailability;
   /** Un driver peut couvrir plusieurs zones — condition d'un réseau partagé. */
   readonly zoneIds: readonly string[];
-  readonly position: GeoPoint;
+  /**
+   * Dernière position connue, ou `null` si le driver n'en a jamais transmis.
+   *
+   * Nullable à dessein : sans cela, la couche qui lit la base devrait écarter
+   * elle-même les drivers non localisés, et cette exclusion disparaîtrait du
+   * journal de dispatch. Un candidat non localisé est écarté ici, avec un motif
+   * — `POSITION_UNKNOWN` — comme n'importe quel autre.
+   */
+  readonly position: GeoPoint | null;
   /** Courses déjà acceptées et non terminées. */
   readonly activeDeliveries: number;
   /** Catégories que ce driver accepte de transporter. */
@@ -124,6 +134,17 @@ export interface DispatchPolicy {
   /** Vitesse retenue pour estimer un temps d'arrivée, en mètres par seconde. */
   readonly assumedSpeedMps: number;
 }
+
+/**
+ * Seule catégorie de course modélisée aujourd'hui.
+ *
+ * Le moteur sait déjà confronter la catégorie d'une course aux catégories
+ * acceptées par un driver — c'est ce qui permettra plus tard de distinguer, par
+ * exemple, une course nécessitant un contrôle d'âge à la remise. Le schéma ne
+ * porte pas encore cette information : tant qu'elle n'existe pas, tout passe par
+ * cette valeur unique, nommée plutôt que dispersée en littéraux.
+ */
+export const DEFAULT_DELIVERY_CATEGORY = "standard";
 
 export const DEFAULT_DISPATCH_POLICY: DispatchPolicy = {
   offerTimeoutSeconds: 30,
@@ -152,13 +173,27 @@ export interface DispatchState {
 // Sélection des candidats
 // ---------------------------------------------------------------------------
 
-export interface CandidateEvaluation {
-  readonly driverId: string;
-  readonly eligible: boolean;
-  readonly reason: DispatchReason | null;
-  readonly distanceMeters: number;
-  readonly estimatedPickupSeconds: number;
-}
+/**
+ * Union discriminée plutôt qu'un booléen : un candidat retenu a forcément une
+ * distance, un candidat écarté peut ne pas en avoir. Le typage porte la
+ * différence, ce qui évite au reste du moteur de la revérifier.
+ */
+export type CandidateEvaluation =
+  | {
+      readonly driverId: string;
+      readonly eligible: true;
+      readonly reason: null;
+      readonly distanceMeters: number;
+      readonly estimatedPickupSeconds: number;
+    }
+  | {
+      readonly driverId: string;
+      readonly eligible: false;
+      readonly reason: DispatchReason;
+      /** `null` quand le driver n'est pas localisé : la distance n'existe pas. */
+      readonly distanceMeters: number | null;
+      readonly estimatedPickupSeconds: number | null;
+    };
 
 export interface RankedCandidate {
   readonly driverId: string;
@@ -184,19 +219,17 @@ function estimatePickupSeconds(distance: number, policy: DispatchPolicy): number
 export function evaluateCandidates(state: DispatchState): readonly CandidateEvaluation[] {
   const alreadyOffered = alreadyOfferedDriverIds(state.assignments);
 
-  return state.candidates.map((candidate) => {
-    const distance = distanceMeters(candidate.position, state.pickup);
-    const estimated = estimatePickupSeconds(distance, state.policy);
-    const base = {
-      driverId: candidate.driverId,
-      distanceMeters: distance,
-      estimatedPickupSeconds: estimated,
-    };
+  return state.candidates.map((candidate): CandidateEvaluation => {
+    const position = candidate.position;
+    const distance = position === null ? null : distanceMeters(position, state.pickup);
+    const estimated = distance === null ? null : estimatePickupSeconds(distance, state.policy);
 
     const exclude = (reason: DispatchReason): CandidateEvaluation => ({
-      ...base,
+      driverId: candidate.driverId,
       eligible: false,
       reason,
+      distanceMeters: distance,
+      estimatedPickupSeconds: estimated,
     });
 
     if (candidate.verification !== "APPROVED") return exclude("DRIVER_NOT_APPROVED");
@@ -211,9 +244,18 @@ export function evaluateCandidates(state: DispatchState): readonly CandidateEval
     // Un driver déjà sollicité sur cette course ne l'est pas deux fois : sans
     // cette règle, le moteur boucle sur le plus proche indéfiniment.
     if (alreadyOffered.has(candidate.driverId)) return exclude("ALREADY_OFFERED");
+    // On ne propose pas une course à quelqu'un dont on ignore où il est : le
+    // classement se fait à la distance, et une distance inconnue le fausserait.
+    if (distance === null || estimated === null) return exclude("POSITION_UNKNOWN");
     if (distance > state.policy.maxPickupDistanceMeters) return exclude("TOO_FAR");
 
-    return { ...base, eligible: true, reason: null };
+    return {
+      driverId: candidate.driverId,
+      eligible: true,
+      reason: null,
+      distanceMeters: distance,
+      estimatedPickupSeconds: estimated,
+    };
   });
 }
 
@@ -262,8 +304,8 @@ export interface DecisionRecord {
   readonly decision: "OFFERED" | "SKIPPED";
   readonly reason: DispatchReason;
   readonly rank: number | null;
-  readonly distanceMeters: number;
-  readonly estimatedPickupSeconds: number;
+  readonly distanceMeters: number | null;
+  readonly estimatedPickupSeconds: number | null;
 }
 
 export type DispatchDecision =

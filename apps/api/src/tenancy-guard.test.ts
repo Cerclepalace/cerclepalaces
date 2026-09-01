@@ -31,7 +31,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const ADAPTERS = [
   join(here, "deliveries", "prisma-repository.ts"),
+  join(here, "deliveries", "dispatch-context.ts"),
   join(here, "orders", "prisma-repository.ts"),
+  // Le dépôt driver est délibérément hors portée tenant — un driver appartient
+  // au réseau, pas à un shop. Il est relu ici quand même : chacune de ses
+  // requêtes doit être nommée et justifiée plus bas, faute de quoi une future
+  // méthode qui lirait une commande ou une livraison passerait inaperçue.
+  join(here, "drivers", "prisma-repository.ts"),
 ];
 
 /**
@@ -74,6 +80,31 @@ const ALLOWED_WITHOUT_TENANT: ReadonlyMap<string, string> = new Map([
     "recordDispatchRound:dispatchDecision.createMany",
     "Rattachée au round qui vient d'être créé dans la portée.",
   ],
+  // --- Dépôt driver : hors portée tenant par conception ---------------------
+  [
+    "findById:driver.findUnique",
+    "Un driver appartient au réseau et non à un shop : le scoper par merchantId découperait la flotte par boutique.",
+  ],
+  [
+    "findByUserId:driver.findUnique",
+    "Lecture du driver par son compte utilisateur, pour l'authentification : aucun tenant n'intervient dans cette identité.",
+  ],
+  [
+    "listDispatchableInZone:driver.findMany",
+    "Candidats d'une zone géographique, mutualisés entre shops : c'est précisément l'intérêt d'un réseau partagé.",
+  ],
+  [
+    "setAvailability:driverAvailabilityLog.updateMany",
+    "Clôt la période de disponibilité en cours d'un driver, qui n'a pas de rattachement marchand.",
+  ],
+  [
+    "setAvailability:driver.update",
+    "Le driver met à jour sa propre disponibilité : ressource réseau, aucun merchantId ne s'y applique.",
+  ],
+  [
+    "setAvailability:driverAvailabilityLog.create",
+    "Ouvre une période de disponibilité pour un driver, ressource réseau sans rattachement marchand.",
+  ],
 ]);
 
 interface PrismaCall {
@@ -110,7 +141,9 @@ function collectPrismaCalls(file: string): readonly PrismaCall[] {
   const source = readFileSync(file, "utf8");
   const calls: PrismaCall[] = [];
 
-  const pattern = /\bdb\.([a-zA-Z]+)\.(findFirst|findMany|findUnique|update|updateMany|create|createMany|delete|deleteMany|upsert|count|aggregate)\s*\(/g;
+  // `db` comme `tx` : une requête écrite dans une transaction imbriquée doit
+  // être relue comme les autres, sinon le garde-fou s'aveugle tout seul.
+  const pattern = /\b(?:db|tx)\.([a-zA-Z]+)\.(findFirst|findMany|findUnique|update|updateMany|create|createMany|delete|deleteMany|upsert|count|aggregate)\s*\(/g;
 
   for (const match of source.matchAll(pattern)) {
     const openIndex = match.index + match[0].length - 1;

@@ -371,3 +371,53 @@ describe("shouldReassign", () => {
     expect(shouldReassign(state({ deliveryStatus: "ASSIGNED" }), T0)).toBe(false);
   });
 });
+
+describe("driver non localisé", () => {
+  it("est écarté avec un motif, pas filtré en silence", () => {
+    const évaluations = evaluateCandidates(
+      state({ candidates: [driver({ driverId: "drv_perdu", position: null })] }),
+    );
+
+    expect(évaluations).toHaveLength(1);
+    expect(évaluations[0]).toMatchObject({
+      driverId: "drv_perdu",
+      eligible: false,
+      reason: "POSITION_UNKNOWN",
+      // Une distance inconnue est `null`, pas zéro : zéro voudrait dire « sur
+      // place », ce qui le classerait premier.
+      distanceMeters: null,
+      estimatedPickupSeconds: null,
+    });
+  });
+
+  it("n'est jamais retenu ni classé", () => {
+    const classés = selectCandidates(
+      state({
+        candidates: [
+          driver({ driverId: "drv_perdu", position: null }),
+          driver({ driverId: "drv_situé" }),
+        ],
+      }),
+    );
+    expect(classés.map((candidat) => candidat.driverId)).toEqual(["drv_situé"]);
+  });
+
+  it("laisse la course sans preneur s'il est le seul candidat", () => {
+    const décision = nextOffer(
+      state({ candidates: [driver({ position: null })] }),
+      plus(0),
+    );
+    expect(décision.kind).toBe("EXHAUSTED");
+  });
+
+  it("cède le pas aux motifs plus structurels", () => {
+    // Un driver non approuvé *et* non localisé est écarté pour la première
+    // raison : c'est celle qui restera vraie quoi qu'il arrive à son GPS.
+    const évaluations = evaluateCandidates(
+      state({
+        candidates: [driver({ verification: "UNDER_REVIEW", position: null })],
+      }),
+    );
+    expect(évaluations[0]?.reason).toBe("DRIVER_NOT_APPROVED");
+  });
+});

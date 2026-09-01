@@ -4,11 +4,13 @@ import {
   DELIVERY_STATUSES,
   DELIVERY_TERMINAL_STATUSES,
   DELIVERY_TRANSITIONS,
+  DRIVER_OCCUPYING_STATUSES,
   DeliveryTransitionError,
   allowedNextDeliveryStatuses,
   assertDeliveryTransition,
   checkDeliveryTransition,
   isTerminalDeliveryStatus,
+  occupiesDriver,
   outgoingDeliveryTransitions,
   type DeliveryStatus,
 } from "./status.js";
@@ -158,5 +160,31 @@ describe("assertDeliveryTransition", () => {
     } catch (error) {
       expect((error as DeliveryTransitionError).code).toBe("ACTOR_NOT_ALLOWED");
     }
+  });
+});
+
+describe("charge d'un driver", () => {
+  it("ne compte que les courses qui le mobilisent vraiment", () => {
+    expect(DRIVER_OCCUPYING_STATUSES).toEqual(["ASSIGNED", "PICKED_UP", "IN_TRANSIT"]);
+  });
+
+  it("ne compte pas une simple proposition en cours", () => {
+    // Un driver sollicité par trois courses n'en a aucune : le compter comme
+    // saturé le rendrait invisible au dispatch alors qu'il est libre.
+    expect(occupiesDriver("OFFERING")).toBe(false);
+    expect(occupiesDriver("PENDING_DISPATCH")).toBe(false);
+    expect(occupiesDriver("UNASSIGNED")).toBe(false);
+  });
+
+  it("ne compte pas une course terminée, même s'il y reste attaché", () => {
+    expect(occupiesDriver("DELIVERED")).toBe(false);
+    expect(occupiesDriver("CANCELLED")).toBe(false);
+    expect(occupiesDriver("FAILED")).toBe(false);
+  });
+
+  it("compte une course en cours", () => {
+    expect(occupiesDriver("ASSIGNED")).toBe(true);
+    expect(occupiesDriver("PICKED_UP")).toBe(true);
+    expect(occupiesDriver("IN_TRANSIT")).toBe(true);
   });
 });
