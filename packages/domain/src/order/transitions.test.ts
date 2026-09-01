@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ORDER_FULFILMENT_MODES,
+  ORDER_FULFILLMENT_MODES,
   ORDER_HAPPY_PATH,
   ORDER_PAYMENT_STATES,
   ORDER_STATUSES,
@@ -18,7 +18,7 @@ import {
   assertTransition,
   checkTransition,
   outgoingTransitions,
-  SIMULATED_HAPPY_PATH,
+  MERCHANT_DIRECT_HAPPY_PATH,
 } from "./transitions.js";
 
 describe("intégrité de la table de transitions", () => {
@@ -161,44 +161,44 @@ describe("requiresRefundDecision", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Commande simulée : le parcours du pilote, sans argent
+// Flux direct : la commande va au shop sans état de paiement
 // ---------------------------------------------------------------------------
 
-describe("mode de traitement", () => {
-  it("interdit les états de paiement à une commande simulée", () => {
-    // C'est la garantie centrale : une commande simulée ne peut pas prétendre
-    // avoir été payée. Pas « ne le fait pas » — ne le peut pas.
+describe("mode de libération", () => {
+  it("interdit les états de paiement au flux direct", () => {
+    // La garantie centrale : une commande en flux direct ne peut pas traverser
+    // un état qui affirme un paiement. Pas « ne le fait pas » — ne le peut pas.
     for (const état of ORDER_PAYMENT_STATES) {
-      const résultat = checkTransition("CART", état, "customer", "SIMULATED");
+      const résultat = checkTransition("CART", état, "customer", "MERCHANT_DIRECT");
       expect(résultat.ok, état).toBe(false);
     }
   });
 
   it("dit pourquoi plutôt que de prétendre que la transition n'existe pas", () => {
-    const résultat = checkTransition("CART", "PENDING_PAYMENT", "customer", "SIMULATED");
+    const résultat = checkTransition("CART", "PENDING_PAYMENT", "customer", "MERCHANT_DIRECT");
     expect(résultat.ok).toBe(false);
     if (!résultat.ok) {
       expect(résultat.code).toBe("MODE_NOT_ALLOWED");
-      expect(résultat.message).toContain("encaissement");
+      expect(résultat.message).toContain("confirmation extérieure");
     }
   });
 
-  it("réserve le raccourci CART → ACCEPTED aux commandes simulées", () => {
-    expect(checkTransition("CART", "ACCEPTED", "merchant_owner", "SIMULATED").ok).toBe(true);
+  it("réserve le passage direct CART → ACCEPTED au flux direct", () => {
+    expect(checkTransition("CART", "ACCEPTED", "merchant_owner", "MERCHANT_DIRECT").ok).toBe(true);
 
-    const payant = checkTransition("CART", "ACCEPTED", "merchant_owner", "PAYMENT_REQUIRED");
+    const payant = checkTransition("CART", "ACCEPTED", "merchant_owner", "EXTERNAL_CONFIRMATION");
     expect(payant.ok).toBe(false);
     if (!payant.ok) expect(payant.code).toBe("MODE_NOT_ALLOWED");
   });
 
-  it("retient le mode payant quand l'appelant l'oublie", () => {
-    // Un oubli doit fermer le raccourci, pas ouvrir un chemin vers PAID.
+  it("retient le flux confirmé quand l'appelant l'oublie", () => {
+    // Un oubli doit fermer le passage direct, pas contourner la confirmation.
     expect(checkTransition("CART", "ACCEPTED", "merchant_owner").ok).toBe(false);
     expect(checkTransition("CART", "PENDING_PAYMENT", "customer").ok).toBe(true);
   });
 
   it("laisse un client abandonner son panier dans les deux modes", () => {
-    for (const mode of ORDER_FULFILMENT_MODES) {
+    for (const mode of ORDER_FULFILLMENT_MODES) {
       expect(checkTransition("CART", "CANCELLED", "customer", mode).ok, mode).toBe(true);
     }
   });
@@ -213,14 +213,14 @@ describe("mode de traitement", () => {
       ["OUT_FOR_DELIVERY", "DELIVERED"],
     ] as const;
     for (const [de, vers] of paires) {
-      const simulé = allowedNextStatuses(de, "system", "SIMULATED");
-      const payant = allowedNextStatuses(de, "system", "PAYMENT_REQUIRED");
+      const simulé = allowedNextStatuses(de, "system", "MERCHANT_DIRECT");
+      const payant = allowedNextStatuses(de, "system", "EXTERNAL_CONFIRMATION");
       expect(new Set(simulé), `${de}→${vers}`).toEqual(new Set(payant));
     }
   });
 
-  it("décrit un parcours simulé complet, du panier à la livraison", () => {
-    expect(SIMULATED_HAPPY_PATH).toEqual([
+  it("décrit un parcours direct complet, du panier à la livraison", () => {
+    expect(MERCHANT_DIRECT_HAPPY_PATH).toEqual([
       "CART",
       "ACCEPTED",
       "PREPARING",
@@ -232,30 +232,30 @@ describe("mode de traitement", () => {
     ]);
   });
 
-  it("ne fait passer le parcours simulé par aucun état de paiement", () => {
-    for (const état of SIMULATED_HAPPY_PATH) {
+  it("ne fait passer le parcours direct par aucun état de paiement", () => {
+    for (const état of MERCHANT_DIRECT_HAPPY_PATH) {
       expect(isPaymentState(état), état).toBe(false);
     }
   });
 
-  it("laisse un shop refuser une commande simulée", () => {
-    // Sans cette sortie, un shop devrait accepter une commande simulée qu'il
-    // ne veut pas, ou la laisser en panier indéfiniment.
-    expect(checkTransition("CART", "MERCHANT_REJECTED", "merchant_owner", "SIMULATED").ok).toBe(
+  it("laisse un shop refuser une commande transmise directement", () => {
+    // Sans cette sortie, un shop devrait accepter une commande qu'il ne veut
+    // pas, ou la laisser en panier indéfiniment.
+    expect(checkTransition("CART", "MERCHANT_REJECTED", "merchant_owner", "MERCHANT_DIRECT").ok).toBe(
       true,
     );
   });
 });
 
 describe("question de remboursement", () => {
-  it("ne se pose jamais sur une commande simulée", () => {
-    // Rien n'a été encaissé : il n'y a rien à rembourser.
-    expect(requiresRefundDecision("PREPARING", "CANCELLED", "SIMULATED")).toBe(false);
-    expect(requiresRefundDecision("OUT_FOR_DELIVERY", "DELIVERY_FAILED", "SIMULATED")).toBe(false);
+  it("ne se pose jamais en flux direct", () => {
+    // Le flux ne traverse aucun état de paiement : rien n'a pu être encaissé.
+    expect(requiresRefundDecision("PREPARING", "CANCELLED", "MERCHANT_DIRECT")).toBe(false);
+    expect(requiresRefundDecision("OUT_FOR_DELIVERY", "DELIVERY_FAILED", "MERCHANT_DIRECT")).toBe(false);
   });
 
-  it("se pose toujours sur une commande payante", () => {
-    expect(requiresRefundDecision("PREPARING", "CANCELLED", "PAYMENT_REQUIRED")).toBe(true);
+  it("se pose sur une commande passée par une confirmation", () => {
+    expect(requiresRefundDecision("PREPARING", "CANCELLED", "EXTERNAL_CONFIRMATION")).toBe(true);
   });
 
   it("retient le mode prudent quand l'appelant l'oublie", () => {

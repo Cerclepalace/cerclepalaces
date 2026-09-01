@@ -24,6 +24,7 @@ type OrderRow = {
   id: string;
   merchantId: string;
   status: string;
+  fulfillmentMode: string;
   customerId: string;
   locationId: string;
   version: number;
@@ -34,6 +35,7 @@ const ORDER_FIELDS = {
   id: true,
   merchantId: true,
   status: true,
+  fulfillmentMode: true,
   customerId: true,
   locationId: true,
   version: true,
@@ -48,6 +50,7 @@ function toOrder(row: OrderRow): OrderSnapshot {
     id: row.id,
     merchantId: row.merchantId,
     status: row.status as OrderSnapshot["status"],
+    fulfillmentMode: row.fulfillmentMode as OrderSnapshot["fulfillmentMode"],
     customerId: row.customerId,
     locationId: row.locationId,
     version: row.version,

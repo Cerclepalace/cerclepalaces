@@ -23,6 +23,7 @@ import {
   requiresRefundDecision,
   type Actor,
   type AdminScope,
+  type OrderFulfillmentMode,
   type OrderStatus,
   type TenantScope,
 } from "@cbd/domain";
@@ -31,6 +32,15 @@ export interface OrderSnapshot {
   readonly id: string;
   readonly merchantId: string;
   readonly status: OrderStatus;
+  /**
+   * Quelle machine à états s'applique à cette commande.
+   *
+   * Lu depuis la commande, jamais fourni par l'appelant : c'est une propriété du
+   * flux qu'elle suit, pas une option de la requête. Laisser une requête le
+   * choisir permettrait de contourner la confirmation attendue en le déclarant
+   * autrement.
+   */
+  readonly fulfillmentMode: OrderFulfillmentMode;
   readonly customerId: string;
   readonly locationId: string;
   readonly assignedDriverId?: string;
@@ -182,7 +192,12 @@ export async function transitionOrder(
       };
     }
 
-    const transition = assertTransition(order.status, command.toStatus, command.actor);
+    const transition = assertTransition(
+      order.status,
+      command.toStatus,
+      command.actor,
+      order.fulfillmentMode,
+    );
 
     const written = await repo.updateStatus(scope, {
       orderId: order.id,
@@ -208,7 +223,11 @@ export async function transitionOrder(
       reason: transition.reason,
     });
 
-    const refundDecisionRequired = requiresRefundDecision(order.status, command.toStatus);
+    const refundDecisionRequired = requiresRefundDecision(
+      order.status,
+      command.toStatus,
+      order.fulfillmentMode,
+    );
 
     if (AUDITED_TARGETS.includes(command.toStatus) || refundDecisionRequired) {
       await repo.appendAuditEntry(scope, {

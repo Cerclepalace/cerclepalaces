@@ -184,6 +184,10 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
         customerId: id("cus"),
         locationId: id(`loc_${suffix}`),
         status: "READY_FOR_PICKUP",
+        // Flux du pilote : la commande est arrivée directement au shop, sans
+        // confirmation extérieure. La colonne n'a pas de défaut, c'est donc au
+        // créateur de le dire — y compris dans un jeu de test.
+        fulfillmentMode: "MERCHANT_DIRECT",
         productsSubtotalCents: 4_000,
         deliveryFeeCents: 500,
         customerTotalCents: 4_500,
@@ -680,6 +684,40 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
           distanceMeters: null,
         });
       }
+    });
+  });
+  describe("mode de libération en base", () => {
+    it("refuse une commande qui ne dit pas de quel flux elle relève", async () => {
+      // La colonne est NOT NULL sans défaut : PostgreSQL a le dernier mot, même
+      // si le typage était contourné.
+      await expect(
+        prisma.$executeRaw`
+          insert into "Order" ("id", "reference", "merchantId", "customerId", "locationId",
+                               "status", "productsSubtotalCents", "deliveryFeeCents",
+                               "customerTotalCents", "merchantPayoutCents",
+                               "driverPayoutCents", "platformNetCents", "updatedAt")
+          values (${id("ord_sans_mode")}, ${`${RUN}-sans-mode`}, ${MERCHANT_A}, ${id("cus")},
+                  ${id("loc_a")}, 'CART', 100, 0, 100, 100, 0, 0, now())
+        `,
+      ).rejects.toMatchObject({ meta: { code: "23502" } });
+    });
+
+    it("relit le mode tel qu'il a été écrit", async () => {
+      const deliveryId = await seedDelivery({ merchantId: MERCHANT_A });
+      const order = await prisma.delivery.findUniqueOrThrow({
+        where: { id: deliveryId },
+        select: { order: { select: { fulfillmentMode: true } } },
+      });
+      expect(order.order.fulfillmentMode).toBe("MERCHANT_DIRECT");
+    });
+
+    it("n'accepte que les deux valeurs déclarées", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `update "Order" set "fulfillmentMode" = 'SIMULATED' where "merchantId" = $1`,
+          MERCHANT_A,
+        ),
+      ).rejects.toThrow();
     });
   });
 });

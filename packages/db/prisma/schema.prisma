@@ -369,6 +369,19 @@ model CartItem {
   @@unique([cartId, productId])
 }
 
+// Comment une commande est libérée vers la préparation. Décrit la forme du flux,
+// pas un moyen de paiement : le mode dit qu'une confirmation extérieure est
+// attendue, il ne dit ni de qui ni de quoi. Ce sont les statuts
+// `PENDING_PAYMENT` et `PAID` qui portent cette sémantique, pas le mode.
+//
+// `EXTERNAL_CONFIRMATION` est déclaré mais inatteignable aujourd'hui :
+// `NoopPaymentProvider` refuse toute opération, donc aucune confirmation ne peut
+// arriver. Voir packages/domain/src/order/status.ts.
+enum OrderFulfillmentMode {
+  EXTERNAL_CONFIRMATION
+  MERCHANT_DIRECT
+}
+
 enum OrderStatus {
   CART
   PENDING_PAYMENT
@@ -396,6 +409,14 @@ model Order {
   locationId String
   addressId  String?
   status     OrderStatus @default(CART)
+
+  // Volontairement **sans valeur par défaut** : chaque création de commande doit
+  // dire de quel flux elle relève. Un défaut choisirait à la place de
+  // l'appelant, et le mauvais défaut est silencieux dans les deux sens — vers
+  // `MERCHANT_DIRECT`, une commande à confirmer contournerait sa confirmation ;
+  // vers `EXTERNAL_CONFIRMATION`, une commande du pilote resterait bloquée en
+  // panier. Obliger à choisir supprime les deux.
+  fulfillmentMode OrderFulfillmentMode
 
   // Verrou optimiste. Toute transition de statut passe par le service, qui
   // compare cette valeur à celle lue avant d'écrire : deux écritures

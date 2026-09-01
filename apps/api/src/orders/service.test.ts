@@ -322,3 +322,129 @@ describe("isolation multi-tenant", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mode de libération : la commande décide, pas la requête
+// ---------------------------------------------------------------------------
+
+describe("mode de libération", () => {
+  it("laisse une commande en flux direct partir du panier vers le shop", async () => {
+    const store = new FakeOrderStore([
+      anOrder({ status: "CART", fulfillmentMode: "MERCHANT_DIRECT" }),
+    ]);
+
+    const résultat = await transitionOrder(store, shop, {
+      orderId: "ord_1",
+      toStatus: "ACCEPTED",
+      actor: "merchant_staff",
+      actorUserId: "usr_shop",
+    });
+
+    expect(résultat.toStatus).toBe("ACCEPTED");
+    expect(store.get("ord_1")?.status).toBe("ACCEPTED");
+  });
+
+  it("refuse ce même passage à une commande qui attend une confirmation", async () => {
+    const store = new FakeOrderStore([
+      anOrder({ status: "CART", fulfillmentMode: "EXTERNAL_CONFIRMATION" }),
+    ]);
+
+    await expect(
+      transitionOrder(store, shop, {
+        orderId: "ord_1",
+        toStatus: "ACCEPTED",
+        actor: "merchant_staff",
+        actorUserId: "usr_shop",
+      }),
+    ).rejects.toThrow(/confirmation extérieure|réservée au flux direct/);
+
+    expect(store.get("ord_1")?.status).toBe("CART");
+    expect(store.statusEvents).toHaveLength(0);
+  });
+
+  it("rend les états de paiement inatteignables en flux direct", async () => {
+    // Le point entier de cette colonne : une commande du pilote ne peut pas
+    // traverser un état qui affirmerait un encaissement.
+    const store = new FakeOrderStore([
+      anOrder({ status: "CART", fulfillmentMode: "MERCHANT_DIRECT" }),
+    ]);
+
+    await expect(
+      transitionOrder(store, shop, {
+        orderId: "ord_1",
+        toStatus: "PENDING_PAYMENT",
+        actor: "customer",
+        actorUserId: "usr_client",
+      }),
+    ).rejects.toThrow();
+
+    expect(store.get("ord_1")?.status).toBe("CART");
+  });
+
+  it("ne laisse pas la requête choisir le mode", async () => {
+    // Le mode est lu sur la commande. Une requête qui prétendrait le contraire
+    // n'a aucun champ pour le dire : `TransitionCommand` n'en porte pas.
+    const store = new FakeOrderStore([
+      anOrder({ status: "CART", fulfillmentMode: "EXTERNAL_CONFIRMATION" }),
+    ]);
+    const commande = {
+      orderId: "ord_1",
+      toStatus: "ACCEPTED",
+      actor: "merchant_staff",
+      actorUserId: "usr_shop",
+      fulfillmentMode: "MERCHANT_DIRECT",
+    } as unknown as Parameters<typeof transitionOrder>[2];
+
+    await expect(transitionOrder(store, shop, commande)).rejects.toThrow();
+    expect(store.get("ord_1")?.status).toBe("CART");
+  });
+
+  it("déroule un parcours direct complet, du panier à la livraison", async () => {
+    const store = new FakeOrderStore([
+      anOrder({ status: "CART", fulfillmentMode: "MERCHANT_DIRECT" }),
+    ]);
+
+    const étapes = [
+      { toStatus: "ACCEPTED", actor: "merchant_staff", actorUserId: "usr_shop" },
+      { toStatus: "PREPARING", actor: "merchant_staff", actorUserId: "usr_shop" },
+      { toStatus: "READY_FOR_PICKUP", actor: "merchant_staff", actorUserId: "usr_shop" },
+      { toStatus: "DRIVER_ASSIGNED", actor: "system", actorUserId: null },
+      { toStatus: "PICKED_UP", actor: "driver", actorUserId: "usr_coursier" },
+      { toStatus: "OUT_FOR_DELIVERY", actor: "driver", actorUserId: "usr_coursier" },
+      { toStatus: "DELIVERED", actor: "driver", actorUserId: "usr_coursier" },
+    ] as const;
+
+    for (const étape of étapes) {
+      await transitionOrder(store, shop, { orderId: "ord_1", ...étape });
+    }
+
+    expect(store.get("ord_1")?.status).toBe("DELIVERED");
+    // Aucun état de paiement dans l'historique : c'est la propriété à tenir.
+    expect(store.statusEvents.map((e) => e.toStatus)).not.toContain("PAID");
+    expect(store.statusEvents.map((e) => e.toStatus)).not.toContain("PENDING_PAYMENT");
+  });
+
+  it("ne pose jamais de question de remboursement en flux direct", async () => {
+    const store = new FakeOrderStore([
+      anOrder({ status: "PREPARING", fulfillmentMode: "MERCHANT_DIRECT" }),
+    ]);
+
+    const résultat = await transitionOrder(store, shop, {
+      orderId: "ord_1",
+      toStatus: "INCIDENT",
+      actor: "merchant_staff",
+      actorUserId: "usr_shop",
+    });
+    expect(résultat.refundDecisionRequired).toBe(false);
+
+    const clôture = await transitionOrder(store, shop, {
+      orderId: "ord_1",
+      toStatus: "CANCELLED",
+      actor: "admin",
+      actorUserId: "usr_admin",
+    });
+    // Sur une commande passée par une confirmation, cette même sortie
+    // demanderait une décision de remboursement.
+    expect(clôture.refundDecisionRequired).toBe(false);
+  });
+});

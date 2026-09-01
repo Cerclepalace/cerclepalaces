@@ -52,32 +52,51 @@ export function isTerminalOrderStatus(status: OrderStatus): boolean {
 }
 
 /**
- * Comment une commande passe du panier à la préparation.
+ * Comment une commande est libérée vers la préparation.
  *
- * Deux chemins, mutuellement exclusifs :
+ * Ce mode décrit **la forme du flux**, pas son moyen de paiement. Il répond à
+ * une seule question, lisible dans la table des transitions : *qui débloque la
+ * commande pour que le shop puisse la préparer ?*
  *
- *  - `PAYMENT_REQUIRED` — le chemin définitif : le client paie, la confirmation
- *    d'encaissement fait avancer la commande. **Aucun encaissement n'est
- *    implémenté à ce jour** ; `NoopPaymentProvider` refuse toute opération, donc
- *    aucune commande ne peut atteindre `PAID` aujourd'hui.
- *  - `SIMULATED` — le parcours du pilote, sans argent : la commande passe du
- *    panier directement à l'acceptation par le shop.
+ *  - `EXTERNAL_CONFIRMATION` — la commande est **retenue** jusqu'à ce qu'une
+ *    confirmation émise hors plateforme arrive. Elle est portée par l'acteur
+ *    `system`, jamais par une requête entrante, et peut être livrée plusieurs
+ *    fois — c'est pour ce workflow qu'existe la garde d'idempotence du service.
+ *    Le shop ne peut rien faire avant.
+ *  - `MERCHANT_DIRECT` — la commande arrive **directement au shop**, qui
+ *    l'accepte ou la refuse. Personne hors de la plateforme n'est consulté.
  *
- * Pourquoi un mode plutôt qu'un raccourci. `PENDING_PAYMENT` et `PAID` affirment
- * quelque chose sur de l'argent. Faire passer une commande non payée par ces
- * états produirait une base qui ment : des commandes marquées « paiement
- * confirmé » sans qu'un euro ait bougé, indiscernables des vraies le jour où il
- * y en aura. Le mode rend cette confusion **structurellement impossible** —
- * `PAID` n'est pas atteignable en `SIMULATED`, et l'inverse est vrai aussi.
+ * Pourquoi ces noms, et pas « payant » et « simulé ». Deux raisons, et elles
+ * comptent :
  *
- * Ce n'est pas un contournement du blocage transactionnel, c'est sa forme
- * lisible : il n'y a toujours ni PSP, ni encaissement, ni versement.
+ *   1. Nommer un mode d'après le paiement trancherait ce que ce projet refuse
+ *      justement de trancher — qui encaisse, qui est vendeur légal
+ *      (docs/TO_VERIFY.md, décisions 05 et 09). Le mode dit qu'une confirmation
+ *      extérieure est attendue ; il ne dit pas de qui, ni de quoi. Les états
+ *      `PENDING_PAYMENT` et `PAID`, eux, portent cette sémantique, et c'est leur
+ *      rôle — pas celui du mode.
+ *   2. « Simulé » serait faux. Une commande `MERCHANT_DIRECT` est réelle : le
+ *      shop prépare vraiment, un driver livre vraiment, un client reçoit
+ *      vraiment. Seule la jambe monétaire est absente. Étiqueter ces lignes
+ *      « simulation » en base mentirait sur des données d'exploitation
+ *      authentiques, et ce mensonge survivrait à la V1.
+ *
+ * État réel aujourd'hui : `EXTERNAL_CONFIRMATION` est **déclaré mais
+ * inatteignable**. `NoopPaymentProvider` refuse toute opération, donc aucune
+ * confirmation ne peut arriver et aucune commande ne peut franchir `PAID`. Le
+ * mode existe parce que la machine à états le connaît déjà, pas parce qu'un flux
+ * l'emprunte.
  */
-export const ORDER_FULFILMENT_MODES = ["PAYMENT_REQUIRED", "SIMULATED"] as const;
+export const ORDER_FULFILLMENT_MODES = ["EXTERNAL_CONFIRMATION", "MERCHANT_DIRECT"] as const;
 
-export type OrderFulfilmentMode = (typeof ORDER_FULFILMENT_MODES)[number];
+export type OrderFulfillmentMode = (typeof ORDER_FULFILLMENT_MODES)[number];
 
-/** États qui affirment quelque chose sur un paiement. Interdits en `SIMULATED`. */
+export const ORDER_FULFILLMENT_MODE_LABEL_FR: Record<OrderFulfillmentMode, string> = {
+  EXTERNAL_CONFIRMATION: "En attente d'une confirmation extérieure",
+  MERCHANT_DIRECT: "Transmise directement au shop",
+};
+
+/** États qui affirment quelque chose sur un paiement. Hors du flux `MERCHANT_DIRECT`. */
 export const ORDER_PAYMENT_STATES: readonly OrderStatus[] = [
   "PENDING_PAYMENT",
   "PAID",
@@ -93,17 +112,18 @@ export function isPaymentState(status: OrderStatus): boolean {
  * ouvre une question de remboursement. Le traitement exact dépend du modèle de
  * vente retenu (voir docs/TO_VERIFY.md, décisions 05 et 07).
  *
- * En mode `SIMULATED`, la réponse est toujours « non » : rien n'a été encaissé,
- * il n'y a rien à rembourser. Le paramètre a pour valeur par défaut le mode le
- * plus prudent, pour qu'un appelant qui l'oublie obtienne « oui » plutôt qu'un
- * silence — une question de remboursement posée à tort se voit ; l'inverse, non.
+ * En `MERCHANT_DIRECT`, la réponse est toujours « non » : le flux ne traverse
+ * aucun état de paiement, donc rien n'a pu être encaissé. Le paramètre a pour
+ * valeur par défaut le mode le plus prudent, pour qu'un appelant qui l'oublie
+ * obtienne « oui » plutôt qu'un silence — une question de remboursement posée à
+ * tort se voit ; l'inverse, non.
  */
 export function requiresRefundDecision(
   from: OrderStatus,
   to: OrderStatus,
-  mode: OrderFulfilmentMode = "PAYMENT_REQUIRED",
+  mode: OrderFulfillmentMode = "EXTERNAL_CONFIRMATION",
 ): boolean {
-  if (mode === "SIMULATED") return false;
+  if (mode === "MERCHANT_DIRECT") return false;
 
   const paidStates: readonly OrderStatus[] = [
     "PAID",

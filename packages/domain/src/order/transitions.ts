@@ -7,7 +7,7 @@
  */
 
 import type { Actor } from "../roles.js";
-import type { OrderFulfilmentMode, OrderStatus } from "./status.js";
+import type { OrderFulfillmentMode, OrderStatus } from "./status.js";
 
 export interface OrderTransition {
   readonly from: OrderStatus;
@@ -22,7 +22,7 @@ export interface OrderTransition {
    * `PAID` inatteignable pour une commande simulée, et un raccourci
    * `CART → ACCEPTED` inatteignable pour une commande payante.
    */
-  readonly modes?: readonly OrderFulfilmentMode[];
+  readonly modes?: readonly OrderFulfillmentMode[];
   /** Ce que la transition signifie, du point de vue opérationnel. */
   readonly reason: string;
 }
@@ -30,30 +30,31 @@ export interface OrderTransition {
 const MERCHANT: readonly Actor[] = ["merchant_owner", "merchant_staff"];
 const PLATFORM: readonly Actor[] = ["admin"];
 
-/** Le chemin qui suppose un encaissement. */
-const PAYANT: readonly OrderFulfilmentMode[] = ["PAYMENT_REQUIRED"];
-/** Le chemin du pilote, sans argent. */
-const SIMULÉ: readonly OrderFulfilmentMode[] = ["SIMULATED"];
+/** Le flux retenu jusqu'à une confirmation venue de l'extérieur. */
+const FLUX_CONFIRMÉ: readonly OrderFulfillmentMode[] = ["EXTERNAL_CONFIRMATION"];
+/** Le flux qui va droit au shop. */
+const FLUX_DIRECT: readonly OrderFulfillmentMode[] = ["MERCHANT_DIRECT"];
 
 export const ORDER_TRANSITIONS: readonly OrderTransition[] = [
   // --- Panier et paiement ---
-  { from: "CART", to: "PENDING_PAYMENT", actors: ["customer"], modes: PAYANT, reason: "Le client valide son panier et part au paiement." },
+  { from: "CART", to: "PENDING_PAYMENT", actors: ["customer"], modes: FLUX_CONFIRMÉ, reason: "Le client valide son panier et part au paiement." },
 
-  // Chemin du pilote : la commande part en préparation sans jamais prétendre
-  // avoir été payée. Le shop décide, comme il décide après un paiement.
-  { from: "CART", to: "ACCEPTED", actors: MERCHANT, modes: SIMULÉ, reason: "Commande simulée : le shop accepte sans encaissement." },
-  { from: "CART", to: "MERCHANT_REJECTED", actors: [...MERCHANT, "system"], modes: SIMULÉ, reason: "Commande simulée : refus du shop, ou absence de réponse dans le délai imparti." },
+  // Flux direct : la commande arrive au shop sans passer par aucun état qui
+  // affirmerait quoi que ce soit sur un paiement. Le shop décide, exactement
+  // comme il décide après une confirmation extérieure.
+  { from: "CART", to: "ACCEPTED", actors: MERCHANT, modes: FLUX_DIRECT, reason: "Le shop accepte une commande qui lui est transmise directement." },
+  { from: "CART", to: "MERCHANT_REJECTED", actors: [...MERCHANT, "system"], modes: FLUX_DIRECT, reason: "Refus du shop sur une commande transmise directement, ou absence de réponse dans le délai imparti." },
   { from: "CART", to: "CANCELLED", actors: ["customer", "system"], reason: "Panier abandonné ou expiré." },
-  { from: "PENDING_PAYMENT", to: "PAID", actors: ["system"], modes: PAYANT, reason: "Confirmation d'encaissement reçue du PSP." },
-  { from: "PENDING_PAYMENT", to: "PAYMENT_FAILED", actors: ["system"], modes: PAYANT, reason: "Paiement refusé ou expiré." },
-  { from: "PENDING_PAYMENT", to: "CANCELLED", actors: ["customer", ...PLATFORM], modes: PAYANT, reason: "Abandon avant encaissement." },
-  { from: "PAYMENT_FAILED", to: "PENDING_PAYMENT", actors: ["customer"], modes: PAYANT, reason: "Le client retente le paiement." },
-  { from: "PAYMENT_FAILED", to: "CANCELLED", actors: ["customer", "system", ...PLATFORM], modes: PAYANT, reason: "Abandon après échec de paiement." },
+  { from: "PENDING_PAYMENT", to: "PAID", actors: ["system"], modes: FLUX_CONFIRMÉ, reason: "Confirmation d'encaissement reçue du PSP." },
+  { from: "PENDING_PAYMENT", to: "PAYMENT_FAILED", actors: ["system"], modes: FLUX_CONFIRMÉ, reason: "Paiement refusé ou expiré." },
+  { from: "PENDING_PAYMENT", to: "CANCELLED", actors: ["customer", ...PLATFORM], modes: FLUX_CONFIRMÉ, reason: "Abandon avant encaissement." },
+  { from: "PAYMENT_FAILED", to: "PENDING_PAYMENT", actors: ["customer"], modes: FLUX_CONFIRMÉ, reason: "Le client retente le paiement." },
+  { from: "PAYMENT_FAILED", to: "CANCELLED", actors: ["customer", "system", ...PLATFORM], modes: FLUX_CONFIRMÉ, reason: "Abandon après échec de paiement." },
 
   // --- Côté shop ---
-  { from: "PAID", to: "ACCEPTED", actors: MERCHANT, modes: PAYANT, reason: "Le shop accepte la commande." },
-  { from: "PAID", to: "MERCHANT_REJECTED", actors: [...MERCHANT, "system"], modes: PAYANT, reason: "Refus du shop, ou absence de réponse dans le délai imparti." },
-  { from: "PAID", to: "CANCELLED", actors: ["customer", ...PLATFORM], modes: PAYANT, reason: "Annulation avant acceptation." },
+  { from: "PAID", to: "ACCEPTED", actors: MERCHANT, modes: FLUX_CONFIRMÉ, reason: "Le shop accepte la commande." },
+  { from: "PAID", to: "MERCHANT_REJECTED", actors: [...MERCHANT, "system"], modes: FLUX_CONFIRMÉ, reason: "Refus du shop, ou absence de réponse dans le délai imparti." },
+  { from: "PAID", to: "CANCELLED", actors: ["customer", ...PLATFORM], modes: FLUX_CONFIRMÉ, reason: "Annulation avant acceptation." },
   { from: "ACCEPTED", to: "PREPARING", actors: MERCHANT, reason: "Le shop commence la préparation." },
   { from: "ACCEPTED", to: "CANCELLED", actors: PLATFORM, reason: "Annulation par la plateforme après acceptation." },
   { from: "ACCEPTED", to: "INCIDENT", actors: [...MERCHANT, ...PLATFORM], reason: "Problème signalé avant préparation (rupture de stock, erreur de commande)." },
@@ -100,19 +101,20 @@ const BY_FROM: ReadonlyMap<OrderStatus, readonly OrderTransition[]> = (() => {
 /**
  * Mode retenu quand l'appelant n'en donne pas.
  *
- * `PAYMENT_REQUIRED` délibérément, et pas « tous les modes » : un appelant qui
- * oublie le mode se verra refuser le raccourci `CART → ACCEPTED` — un échec
- * visible — plutôt que d'ouvrir sans le savoir un chemin vers `PAID`.
+ * `EXTERNAL_CONFIRMATION` délibérément, et pas « tous les modes » : un appelant
+ * qui oublie le mode se verra refuser le passage direct `CART → ACCEPTED` — un
+ * échec visible — plutôt que d'ouvrir sans le savoir un chemin qui contourne la
+ * confirmation attendue.
  */
-const MODE_PAR_DÉFAUT: OrderFulfilmentMode = "PAYMENT_REQUIRED";
+const MODE_PAR_DÉFAUT: OrderFulfillmentMode = "EXTERNAL_CONFIRMATION";
 
-function existsInMode(transition: OrderTransition, mode: OrderFulfilmentMode): boolean {
+function existsInMode(transition: OrderTransition, mode: OrderFulfillmentMode): boolean {
   return transition.modes === undefined || transition.modes.includes(mode);
 }
 
 export function outgoingTransitions(
   from: OrderStatus,
-  mode: OrderFulfilmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
 ): readonly OrderTransition[] {
   return (BY_FROM.get(from) ?? []).filter((transition) => existsInMode(transition, mode));
 }
@@ -120,7 +122,7 @@ export function outgoingTransitions(
 export function findTransition(
   from: OrderStatus,
   to: OrderStatus,
-  mode: OrderFulfilmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
 ): OrderTransition | undefined {
   return outgoingTransitions(from, mode).find((transition) => transition.to === to);
 }
@@ -129,7 +131,7 @@ export function findTransition(
 export function allowedNextStatuses(
   from: OrderStatus,
   actor: Actor,
-  mode: OrderFulfilmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
 ): readonly OrderStatus[] {
   return outgoingTransitions(from, mode)
     .filter((transition) => transition.actors.includes(actor))
@@ -148,7 +150,7 @@ export function checkTransition(
   from: OrderStatus,
   to: OrderStatus,
   actor: Actor,
-  mode: OrderFulfilmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
 ): TransitionCheck {
   const transition = findTransition(from, to, mode);
 
@@ -162,9 +164,9 @@ export function checkTransition(
         ok: false,
         code: "MODE_NOT_ALLOWED",
         message:
-          mode === "SIMULATED"
-            ? `Transition ${from} → ${to} indisponible pour une commande simulée : elle suppose un encaissement.`
-            : `Transition ${from} → ${to} réservée aux commandes simulées.`,
+          mode === "MERCHANT_DIRECT"
+            ? `Transition ${from} → ${to} indisponible en flux direct : elle suppose une confirmation extérieure.`
+            : `Transition ${from} → ${to} réservée au flux direct vers le shop.`,
       };
     }
     return {
@@ -202,7 +204,7 @@ export function assertTransition(
   from: OrderStatus,
   to: OrderStatus,
   actor: Actor,
-  mode: OrderFulfilmentMode = MODE_PAR_DÉFAUT,
+  mode: OrderFulfillmentMode = MODE_PAR_DÉFAUT,
 ): OrderTransition {
   const result = checkTransition(from, to, actor, mode);
   if (!result.ok) throw new OrderTransitionError(result.code, result.message);
@@ -210,13 +212,14 @@ export function assertTransition(
 }
 
 /**
- * Le parcours d'une commande simulée, dans l'ordre, tel que la table l'autorise.
+ * Le parcours d'une commande en flux direct, dans l'ordre, tel que la table
+ * l'autorise.
  *
  * Calculé depuis `ORDER_TRANSITIONS` plutôt qu'écrit à la main : une liste
  * recopiée diverge de la table dès la première modification, et c'est alors la
  * documentation qui a l'air fausse.
  */
-export const SIMULATED_HAPPY_PATH: readonly OrderStatus[] = (() => {
+export const MERCHANT_DIRECT_HAPPY_PATH: readonly OrderStatus[] = (() => {
   const chemin: OrderStatus[] = ["CART"];
   const cibles: readonly OrderStatus[] = [
     "ACCEPTED",
@@ -230,7 +233,7 @@ export const SIMULATED_HAPPY_PATH: readonly OrderStatus[] = (() => {
   for (const cible of cibles) {
     const depuis = chemin[chemin.length - 1];
     if (depuis === undefined) break;
-    if (findTransition(depuis, cible, "SIMULATED") === undefined) break;
+    if (findTransition(depuis, cible, "MERCHANT_DIRECT") === undefined) break;
     chemin.push(cible);
   }
   return chemin;

@@ -101,6 +101,10 @@ export function anOrder(overrides: Partial<OrderSnapshot> = {}): OrderSnapshot {
     id: "ord_1",
     merchantId: "mer_a",
     status: "PAID",
+    // Le flux historique du service : la commande attend une confirmation
+    // extérieure avant que le shop puisse agir. Les tests du flux direct le
+    // surchargent explicitement.
+    fulfillmentMode: "EXTERNAL_CONFIRMATION",
     customerId: "usr_client",
     locationId: "loc_1",
     version: 1,
