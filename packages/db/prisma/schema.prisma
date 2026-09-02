@@ -133,8 +133,12 @@ model Address {
 // Commerçants
 // ---------------------------------------------------------------------------
 
+// Six états. `APPROVED` ne vend pas : valider un dossier et ouvrir un commerce
+// sont deux décisions distinctes. Voir packages/domain/src/merchant/status.ts.
 enum MerchantStatus {
   PENDING_VALIDATION
+  KYB_REVIEW
+  APPROVED
   ACTIVE
   SUSPENDED
   CLOSED
@@ -853,7 +857,7 @@ model QrScanEvent {
   merchantId  String
   qrCodeId    String?
   locationId  String?
-  eventType   String // qr_scan, shop_view, product_view, add_to_cart, checkout_started, order_completed
+  eventType   String // qr_scan, shop_view, product_view, add_to_cart, order_review, order_completed
   sessionKey  String
   customerRef String?
   orderId     String?

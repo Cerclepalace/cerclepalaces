@@ -87,6 +87,79 @@ export function supportsAuthorisation(evidence: LegalEvidence, now: Date): boole
 }
 
 // ---------------------------------------------------------------------------
+// Taxonomie produit
+// ---------------------------------------------------------------------------
+
+/**
+ * Les catégories que la plateforme sait nommer. Liste **fermée**.
+ *
+ * Une chaîne libre permettait d'inventer une catégorie ; une valeur inconnue
+ * bloquait, donc l'échec était du bon côté, mais rien ne distinguait « catégorie
+ * jamais examinée » de « catégorie qui n'existe pas ». Ce sont deux incidents
+ * différents : le premier attend une décision, le second une correction de
+ * saisie.
+ *
+ * Il n'existe **pas** de catégorie « CBD ». Un produit au CBD peut être une
+ * fleur, une résine, une huile, un cosmétique, un aliment, un complément ou un
+ * liquide à vapoter, et ces natures ne relèvent pas des mêmes règles. Les
+ * confondre sous une étiquette unique effacerait précisément la distinction que
+ * la conformité doit faire.
+ */
+export const PRODUCT_CATEGORIES = [
+  "FLOWER",
+  "RESIN",
+  "OIL_NON_FOOD",
+  "COSMETIC",
+  "FOOD",
+  "SUPPLEMENT",
+  "VAPE",
+  "ACCESSORY",
+  /** Non classé. Attend un classement humain ; ne s'ouvre jamais. */
+  "OTHER",
+  /** Fermée par construction. Aucune politique ne peut l'ouvrir. */
+  "PROHIBITED_DERIVATIVE",
+] as const;
+
+export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+
+export function isProductCategory(value: unknown): value is ProductCategory {
+  return typeof value === "string" && (PRODUCT_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * Catégories qu'aucune politique ne peut ouvrir, quoi qu'elle déclare.
+ *
+ * `PROHIBITED_DERIVATIVE` est fermée structurellement : une règle qui
+ * l'autoriserait, même soutenue par une preuve vérifiée, est ignorée. C'est le
+ * seul endroit du module où le code refuse d'obéir à sa politique, et c'est
+ * volontaire — cette catégorie existe pour nommer ce qui ne se distribue pas.
+ *
+ * `OTHER` ne s'ouvre pas non plus, pour une raison différente : ce n'est pas une
+ * catégorie, c'est l'absence de classement. L'ouvrir reviendrait à autoriser
+ * tout ce que personne n'a su ranger.
+ */
+export const STRUCTURALLY_CLOSED_CATEGORIES: readonly ProductCategory[] = [
+  "PROHIBITED_DERIVATIVE",
+  "OTHER",
+];
+
+/**
+ * Ce que le code peut, et ce qu'il ne peut pas.
+ *
+ * Il vérifie qu'une **déclaration** est recevable : la catégorie existe, elle
+ * est ouverte, les taux déclarés tiennent dans les plafonds, le dossier est
+ * complet. Il ne vérifie **pas** que la déclaration est vraie. Rien dans une
+ * chaîne de caractères ne dit la nature matérielle d'un produit, et aucun
+ * contrôle automatique ne remplacera l'examen du dossier et de la marchandise.
+ *
+ * Un produit déclaré `FLOWER` alors qu'il relève de `PROHIBITED_DERIVATIVE`
+ * franchira toutes les portes de ce module. Cette limite est structurelle, pas
+ * un défaut à corriger : elle se traite par le contrôle humain et la preuve
+ * documentaire, pas par du code.
+ */
+export const CATEGORY_DECLARATION_IS_NOT_VERIFICATION = true;
+
+// ---------------------------------------------------------------------------
 // Décisions
 // ---------------------------------------------------------------------------
 
@@ -95,7 +168,7 @@ export const POLICY_DECISIONS = ["ALLOWED", "PROHIBITED", "UNDECIDED"] as const;
 export type PolicyDecision = (typeof POLICY_DECISIONS)[number];
 
 export interface CategoryRule {
-  readonly categorySlug: string;
+  readonly categorySlug: ProductCategory;
   /** `UNDECIDED` ne s'écrit pas : c'est l'absence de règle. */
   readonly decision: "ALLOWED" | "PROHIBITED";
   readonly evidenceIds: readonly string[];
@@ -136,11 +209,42 @@ export interface AnalyteRule {
   readonly decidedAt: Date;
 }
 
+/**
+ * Dépendance entre analyses : la présence de l'une en rend une autre exigible.
+ *
+ * **Ce module ne contient aucune règle de ce type.** Il fournit le mécanisme
+ * pour en appliquer, quand une source vérifiée en documentera. Écrire ici une
+ * dépendance concrète reviendrait à inventer une règle de conformité, ce que ce
+ * dépôt s'interdit.
+ *
+ * Forme : « si l'analyte déclenchant est mesuré au-dessus du seuil, alors ces
+ * analytes-là doivent être mesurés eux aussi ». Une exigence non satisfaite est
+ * un refus, jamais un avertissement.
+ */
+export interface ConditionalAnalyteRule {
+  readonly id: string;
+  /** Analyte dont la mesure déclenche la condition. */
+  readonly triggerAnalyte: string;
+  /**
+   * Seuil de déclenchement, strictement dépassé.
+   *
+   * `0` déclenche dès qu'une mesure strictement positive est déclarée ;
+   * `null` déclenche dès que l'analyte est mesuré, quelle que soit sa valeur.
+   */
+  readonly triggerAbovePercent: number | null;
+  /** Analytes qui deviennent obligatoires quand la condition est remplie. */
+  readonly requiredAnalytes: readonly string[];
+  /** Une dépendance affirme quelque chose : elle exige une preuve vérifiée. */
+  readonly evidenceIds: readonly string[];
+  readonly decidedAt: Date;
+}
+
 export interface CataloguePolicy {
   readonly evidence: readonly LegalEvidence[];
   readonly categories: readonly CategoryRule[];
   readonly prohibitedSubstances: readonly SubstanceRule[];
   readonly analytes: readonly AnalyteRule[];
+  readonly conditionalAnalytes: readonly ConditionalAnalyteRule[];
   /**
    * Date de la dernière revue **complète** de cette politique.
    *
@@ -171,9 +275,35 @@ export const EMPTY_CATALOGUE_POLICY: CataloguePolicy = {
   categories: [],
   prohibitedSubstances: [],
   analytes: [],
+  conditionalAnalytes: [],
   reviewedAt: null,
   maxAgeDays: null,
 };
+
+export interface DuplicateEvidenceId {
+  readonly id: string;
+  readonly count: number;
+}
+
+/**
+ * Identifiants de preuve apparaissant plus d'une fois.
+ *
+ * L'unicité est une **invariance du registre**, pas une préférence : les règles
+ * citent leurs preuves par identifiant. Deux lignes portant le même identifiant
+ * rendent la citation ambiguë, et rien ne dit laquelle la règle visait.
+ *
+ * À distinguer de `reference`, qui peut légitimement se répéter : deux règles
+ * différentes peuvent s'appuyer sur la même source.
+ */
+export function findDuplicateEvidenceIds(
+  evidence: readonly LegalEvidence[],
+): readonly DuplicateEvidenceId[] {
+  const comptes = new Map<string, number>();
+  for (const item of evidence) comptes.set(item.id, (comptes.get(item.id) ?? 0) + 1);
+  return [...comptes.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([id, count]) => ({ id, count }));
+}
 
 export type PolicyFreshness =
   | { readonly fresh: true }
@@ -248,8 +378,16 @@ function verifiedEvidence(
   evidenceIds: readonly string[],
   now: Date,
 ): readonly LegalEvidence[] {
+  // Un identifiant ambigu ne soutient rien. Retenir la ligne vérifiée parmi deux
+  // homonymes reviendrait à laisser une preuve non vérifiée en couvrir une
+  // autre : il suffirait d'ajouter une ligne pour ouvrir une catégorie.
+  const ambigus = new Set(findDuplicateEvidenceIds(policy.evidence).map((d) => d.id));
+
   return policy.evidence.filter(
-    (evidence) => evidenceIds.includes(evidence.id) && supportsAuthorisation(evidence, now),
+    (evidence) =>
+      evidenceIds.includes(evidence.id) &&
+      !ambigus.has(evidence.id) &&
+      supportsAuthorisation(evidence, now),
   );
 }
 
@@ -259,11 +397,16 @@ function verifiedEvidence(
 
 export type CategoryVerdict =
   | { readonly decision: "ALLOWED"; readonly evidence: readonly LegalEvidence[] }
-  | { readonly decision: "PROHIBITED"; readonly rule: CategoryRule }
+  | { readonly decision: "PROHIBITED"; readonly rule: CategoryRule | null }
   | {
       readonly decision: "UNDECIDED";
-      /** Pourquoi non tranché : jamais examiné, ou autorisé sans preuve tenable. */
-      readonly cause: "NO_RULE" | "AUTHORISATION_UNSUPPORTED";
+      readonly cause:
+        | "NO_RULE"
+        | "AUTHORISATION_UNSUPPORTED"
+        /** La valeur déclarée n'est pas une catégorie de la taxonomie. */
+        | "NOT_A_CATEGORY"
+        /** `OTHER` : le produit n'est pas classé, il attend un classement. */
+        | "UNCLASSIFIED";
     };
 
 /**
@@ -277,11 +420,28 @@ export type CategoryVerdict =
  */
 export function decideCategory(
   policy: CataloguePolicy,
-  categorySlug: string,
+  categorySlug: unknown,
   now: Date,
 ): CategoryVerdict {
-  const cible = normalise(categorySlug);
-  const rule = policy.categories.find((candidate) => normalise(candidate.categorySlug) === cible);
+  // La taxonomie est fermée, et la comparaison est **exacte** : ni la casse ni
+  // les tirets ne sont rattrapés. « flower » n'est pas `FLOWER`, c'est une
+  // valeur qui n'a pas été produite par le système. La tolérer masquerait une
+  // saisie libre là où l'on veut une valeur d'énumération.
+  if (!isProductCategory(categorySlug)) {
+    return { decision: "UNDECIDED", cause: "NOT_A_CATEGORY" };
+  }
+
+  // Fermeture structurelle : aucune politique ne peut ouvrir ces catégories.
+  // Le contrôle passe avant la lecture des règles, pour qu'une règle contraire
+  // n'ait aucun effet plutôt que d'être discutée.
+  if (categorySlug === "PROHIBITED_DERIVATIVE") {
+    return { decision: "PROHIBITED", rule: null };
+  }
+  if (categorySlug === "OTHER") {
+    return { decision: "UNDECIDED", cause: "UNCLASSIFIED" };
+  }
+
+  const rule = policy.categories.find((candidate) => candidate.categorySlug === categorySlug);
 
   if (!rule) return { decision: "UNDECIDED", cause: "NO_RULE" };
   if (rule.decision === "PROHIBITED") return { decision: "PROHIBITED", rule };
@@ -423,4 +583,93 @@ export function decideAnalyte(
   }
 
   return { analyte: declared.analyte, decision: "WITHIN_LIMIT", maxPercent: rule.maxPercent };
+}
+
+// ---------------------------------------------------------------------------
+// Dépendances entre analyses
+// ---------------------------------------------------------------------------
+
+export type ConditionalRequirement =
+  | {
+      readonly ruleId: string;
+      readonly outcome: "SATISFIED";
+      readonly triggeredBy: string;
+    }
+  | {
+      readonly ruleId: string;
+      readonly outcome: "MISSING_ANALYTE";
+      readonly triggeredBy: string;
+      readonly missing: readonly string[];
+    }
+  | {
+      readonly ruleId: string;
+      readonly outcome: "UNSUPPORTED";
+      readonly triggeredBy: string;
+    };
+
+/**
+ * Évalue les dépendances déclenchées par les analyses déclarées.
+ *
+ * Trois issues, et aucune n'est un silence :
+ *
+ *  - `SATISFIED` — la condition s'applique et les analyses exigées sont là ;
+ *  - `MISSING_ANALYTE` — elle s'applique et il en manque : c'est un refus, avec
+ *    la liste de ce qui manque ;
+ *  - `UNSUPPORTED` — elle s'applique mais aucune preuve vérifiée ne la soutient.
+ *    Le résultat est aussi un refus, et c'est délibéré : une exigence qu'on ne
+ *    peut pas sourcer ne doit ni bloquer en silence ni s'effacer en silence.
+ *
+ * Une règle dont l'analyte déclenchant n'est pas mesuré, ou est mesuré sous le
+ * seuil, ne rend rien : elle ne s'applique pas. Une mesure invalide **ne
+ * déclenche pas** non plus — elle est déjà refusée par `decideAnalyte`, et la
+ * traiter ici comme un déclenchement produirait deux motifs pour une seule
+ * cause.
+ *
+ * Toutes les règles sont évaluées, jamais la première seulement : plusieurs
+ * dépendances peuvent tomber ensemble, et l'exploitant doit toutes les voir.
+ */
+export function evaluateConditionalAnalytes(
+  policy: CataloguePolicy,
+  declared: readonly DeclaredAnalyte[],
+  now: Date,
+): readonly ConditionalRequirement[] {
+  const parAnalyte = new Map(
+    declared
+      .filter((mesure) => estMesureValide(mesure.percent))
+      .map((mesure) => [normalise(mesure.analyte), mesure.percent] as const),
+  );
+
+  const résultats: ConditionalRequirement[] = [];
+
+  for (const rule of policy.conditionalAnalytes) {
+    const valeur = parAnalyte.get(normalise(rule.triggerAnalyte));
+    if (valeur === undefined) continue;
+    if (rule.triggerAbovePercent !== null && valeur <= rule.triggerAbovePercent) continue;
+
+    if (verifiedEvidence(policy, rule.evidenceIds, now).length === 0) {
+      résultats.push({
+        ruleId: rule.id,
+        outcome: "UNSUPPORTED",
+        triggeredBy: rule.triggerAnalyte,
+      });
+      continue;
+    }
+
+    const manquants = rule.requiredAnalytes.filter(
+      (exigé) => !parAnalyte.has(normalise(exigé)),
+    );
+
+    résultats.push(
+      manquants.length === 0
+        ? { ruleId: rule.id, outcome: "SATISFIED", triggeredBy: rule.triggerAnalyte }
+        : {
+            ruleId: rule.id,
+            outcome: "MISSING_ANALYTE",
+            triggeredBy: rule.triggerAnalyte,
+            missing: manquants,
+          },
+    );
+  }
+
+  return résultats;
 }

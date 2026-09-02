@@ -10,13 +10,20 @@
 export const QR_STATUSES = ["ACTIVE", "DISABLED"] as const;
 export type QrStatus = (typeof QR_STATUSES)[number];
 
-/** Le tunnel, dans l'ordre. L'index sert à calculer les taux de conversion. */
+/**
+ * Le tunnel, dans l'ordre. L'index sert à calculer les taux de conversion.
+ *
+ * L'étape avant la commande s'appelle `order_review` et non « checkout » : il
+ * n'existe aucun tunnel de paiement dans ce système, et nommer une étape d'après
+ * une capacité gelée ferait croire qu'elle existe. C'est la garde anti-monétaire
+ * qui a relevé le nom.
+ */
 export const ACQUISITION_EVENTS = [
   "qr_scan",
   "shop_view",
   "product_view",
   "add_to_cart",
-  "checkout_started",
+  "order_review",
   "order_completed",
 ] as const;
 
@@ -53,7 +60,7 @@ export interface FunnelCounts {
   readonly shop_view: number;
   readonly product_view: number;
   readonly add_to_cart: number;
-  readonly checkout_started: number;
+  readonly order_review: number;
   readonly order_completed: number;
 }
 
@@ -62,7 +69,7 @@ export interface FunnelRates {
   readonly scanToOrder: number;
   readonly scanToCart: number;
   readonly cartToOrder: number;
-  readonly checkoutToOrder: number;
+  readonly reviewToOrder: number;
 }
 
 const ratio = (numerator: number, denominator: number): number =>
@@ -73,6 +80,6 @@ export function funnelRates(counts: FunnelCounts): FunnelRates {
     scanToOrder: ratio(counts.order_completed, counts.qr_scan),
     scanToCart: ratio(counts.add_to_cart, counts.qr_scan),
     cartToOrder: ratio(counts.order_completed, counts.add_to_cart),
-    checkoutToOrder: ratio(counts.order_completed, counts.checkout_started),
+    reviewToOrder: ratio(counts.order_completed, counts.order_review),
   };
 }

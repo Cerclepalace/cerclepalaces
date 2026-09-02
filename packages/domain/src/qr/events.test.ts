@@ -55,7 +55,7 @@ describe("funnelRates", () => {
     shop_view: 180,
     product_view: 120,
     add_to_cart: 40,
-    checkout_started: 25,
+    order_review: 25,
     order_completed: 20,
   };
 
@@ -67,7 +67,7 @@ describe("funnelRates", () => {
     const rates = funnelRates(counts);
     expect(rates.scanToCart).toBeCloseTo(0.2);
     expect(rates.cartToOrder).toBeCloseTo(0.5);
-    expect(rates.checkoutToOrder).toBeCloseTo(0.8);
+    expect(rates.reviewToOrder).toBeCloseTo(0.8);
   });
 
   it("renvoie zéro plutôt qu'une division par zéro sur un QR jamais scanné", () => {
@@ -76,7 +76,7 @@ describe("funnelRates", () => {
       shop_view: 0,
       product_view: 0,
       add_to_cart: 0,
-      checkout_started: 0,
+      order_review: 0,
       order_completed: 0,
     });
     expect(rates.scanToOrder).toBe(0);

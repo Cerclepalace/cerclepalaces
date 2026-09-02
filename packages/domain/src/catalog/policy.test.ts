@@ -25,6 +25,7 @@ const preuve = (overrides: Partial<LegalEvidence> = {}): LegalEvidence => ({
 
 const politique = (overrides: Partial<CataloguePolicy> = {}): CataloguePolicy => ({
   ...EMPTY_CATALOGUE_POLICY,
+  conditionalAnalytes: [],
   reviewedAt: NOW,
   maxAgeDays: 180,
   ...overrides,
@@ -56,7 +57,7 @@ describe("preuve juridique", () => {
 describe("politique vide", () => {
   it("n'autorise rien", () => {
     // Le comportement correct d'un système qui ne sait pas encore.
-    expect(decideCategory(EMPTY_CATALOGUE_POLICY, "fleurs-cbd", NOW)).toEqual({
+    expect(decideCategory(EMPTY_CATALOGUE_POLICY, "FLOWER", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "NO_RULE",
     });
@@ -72,7 +73,7 @@ describe("catégories", () => {
     evidence: [preuve({ id: "ev_source" })],
     categories: [
       {
-        categorySlug: "fleurs-cbd",
+        categorySlug: "FLOWER",
         decision: "ALLOWED",
         evidenceIds: ["ev_source"],
         decidedAt: NOW,
@@ -82,13 +83,21 @@ describe("catégories", () => {
   });
 
   it("autorise une catégorie soutenue par une preuve vérifiée", () => {
-    const verdict = decideCategory(autorisée, "fleurs-cbd", NOW);
+    const verdict = decideCategory(autorisée, "FLOWER", NOW);
     expect(verdict.decision).toBe("ALLOWED");
     if (verdict.decision === "ALLOWED") expect(verdict.evidence).toHaveLength(1);
   });
 
-  it("ignore la casse et les espaces du slug", () => {
-    expect(decideCategory(autorisée, "  Fleurs-CBD ", NOW).decision).toBe("ALLOWED");
+  it("n'ignore ni la casse ni les espaces : la taxonomie est fermée", () => {
+    // Tolérer « flower » masquerait une saisie libre là où l'on attend une
+    // valeur d'énumération produite par le système.
+    for (const variante of ["  FLOWER ", "flower", "Flower", "FLOWER "]) {
+      expect(decideCategory(autorisée, variante, NOW), variante).toEqual({
+        decision: "UNDECIDED",
+        cause: "NOT_A_CATEGORY",
+      });
+    }
+    expect(decideCategory(autorisée, "FLOWER", NOW).decision).toBe("ALLOWED");
   });
 
   it("interdit sans exiger de preuve", () => {
@@ -96,15 +105,15 @@ describe("catégories", () => {
     // sens coûte une vente, se tromper dans l'autre coûte autre chose.
     const p = politique({
       categories: [
-        { categorySlug: "comestibles", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
+        { categorySlug: "FOOD", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "comestibles", NOW).decision).toBe("PROHIBITED");
+    expect(decideCategory(p, "FOOD", NOW).decision).toBe("PROHIBITED");
   });
 
   it("rend une catégorie jamais examinée indécise, pas autorisée", () => {
     // Le cas qui existe réellement aujourd'hui sur presque tout.
-    expect(decideCategory(autorisée, "resines", NOW)).toEqual({
+    expect(decideCategory(autorisée, "RESIN", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "NO_RULE",
     });
@@ -114,10 +123,10 @@ describe("catégories", () => {
     const p = politique({
       evidence: [preuve({ id: "ev_source", status: "UNVERIFIED" })],
       categories: [
-        { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
+        { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd", NOW)).toEqual({
+    expect(decideCategory(p, "FLOWER", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "AUTHORISATION_UNSUPPORTED",
     });
@@ -129,10 +138,10 @@ describe("catégories", () => {
     const p = politique({
       evidence: [preuve({ id: "ev_source", status: "SUPERSEDED" })],
       categories: [
-        { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
+        { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd", NOW)).toEqual({
+    expect(decideCategory(p, "FLOWER", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "AUTHORISATION_UNSUPPORTED",
     });
@@ -146,7 +155,7 @@ describe("catégories", () => {
       ],
       categories: [
         {
-          categorySlug: "fleurs-cbd",
+          categorySlug: "FLOWER",
           decision: "ALLOWED",
           evidenceIds: ["ev_vieille", "ev_neuve"],
           decidedAt: NOW,
@@ -154,17 +163,17 @@ describe("catégories", () => {
         },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd", NOW).decision).toBe("ALLOWED");
+    expect(decideCategory(p, "FLOWER", NOW).decision).toBe("ALLOWED");
   });
 
   it("ne se laisse pas soutenir par une preuve qu'elle ne cite pas", () => {
     const p = politique({
       evidence: [preuve({ id: "ev_autre" })],
       categories: [
-        { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_absente"], decidedAt: NOW, note: null },
+        { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_absente"], decidedAt: NOW, note: null },
       ],
     });
-    expect(decideCategory(p, "fleurs-cbd", NOW).decision).toBe("UNDECIDED");
+    expect(decideCategory(p, "FLOWER", NOW).decision).toBe("UNDECIDED");
   });
 });
 

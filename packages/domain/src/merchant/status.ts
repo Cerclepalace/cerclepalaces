@@ -20,8 +20,24 @@
 
 import type { Actor } from "../roles.js";
 
+/**
+ * Six états, et trois d'entre eux sont souvent confondus.
+ *
+ *  - `PENDING_VALIDATION` — le shop constitue son dossier. Rien n'est soumis.
+ *  - `KYB_REVIEW` — le dossier est déposé et attend un examen. Le shop ne peut
+ *    plus le modifier sans relancer le cycle.
+ *  - `APPROVED` — le dossier est validé. **Et le shop ne vend toujours pas.**
+ *    Valider un dossier et ouvrir un commerce sont deux décisions distinctes,
+ *    prises à des moments différents et parfois par des personnes différentes ;
+ *    les fondre en une seule ferait qu'approuver un KYB mettrait un shop en
+ *    ligne, ce que personne ne veut au moment où il signe l'approbation.
+ *  - `ACTIVE` — le seul état où le shop vend.
+ *  - `SUSPENDED`, `CLOSED` — mesure conservatoire et fin de parcours.
+ */
 export const MERCHANT_STATUSES = [
   "PENDING_VALIDATION",
+  "KYB_REVIEW",
+  "APPROVED",
   "ACTIVE",
   "SUSPENDED",
   "CLOSED",
@@ -60,15 +76,57 @@ export interface MerchantTransition {
 export const MERCHANT_TRANSITIONS: readonly MerchantTransition[] = [
   {
     from: "PENDING_VALIDATION",
-    to: "ACTIVE",
-    actors: ["admin"],
-    reason: "Dossier vérifié : le shop peut vendre.",
+    to: "KYB_REVIEW",
+    actors: ["merchant_owner", "admin"],
+    reason: "Le shop dépose son dossier et demande son examen.",
   },
   {
     from: "PENDING_VALIDATION",
     to: "CLOSED",
     actors: ["admin", "merchant_owner"],
-    reason: "Candidature abandonnée ou refusée avant activation.",
+    reason: "Candidature abandonnée ou refusée avant examen du dossier.",
+  },
+  {
+    from: "KYB_REVIEW",
+    to: "APPROVED",
+    actors: ["admin"],
+    reason: "Dossier vérifié. Le shop est validé, mais ne vend pas encore.",
+  },
+  {
+    from: "KYB_REVIEW",
+    to: "PENDING_VALIDATION",
+    actors: ["admin"],
+    reason: "Dossier renvoyé au shop pour complément.",
+  },
+  {
+    from: "KYB_REVIEW",
+    to: "CLOSED",
+    actors: ["admin", "merchant_owner"],
+    reason: "Candidature retirée ou refusée à l'examen.",
+  },
+  {
+    from: "APPROVED",
+    to: "ACTIVE",
+    actors: ["admin"],
+    reason: "Ouverture commerciale : le shop peut vendre.",
+  },
+  {
+    from: "APPROVED",
+    to: "KYB_REVIEW",
+    actors: ["admin", "system"],
+    reason: "Changement critique du dossier : l'examen doit être refait.",
+  },
+  {
+    from: "APPROVED",
+    to: "CLOSED",
+    actors: ["admin", "merchant_owner"],
+    reason: "Fermeture avant ouverture commerciale.",
+  },
+  {
+    from: "ACTIVE",
+    to: "KYB_REVIEW",
+    actors: ["admin", "system"],
+    reason: "Changement critique du dossier : la vente s'arrête et l'examen reprend.",
   },
   {
     from: "ACTIVE",
@@ -90,6 +148,12 @@ export const MERCHANT_TRANSITIONS: readonly MerchantTransition[] = [
   },
   {
     from: "SUSPENDED",
+    to: "KYB_REVIEW",
+    actors: ["admin", "system"],
+    reason: "Changement critique pendant une suspension : l'examen reprend.",
+  },
+  {
+    from: "SUSPENDED",
     to: "CLOSED",
     actors: ["admin"],
     reason: "Suspension confirmée en fermeture définitive.",
@@ -100,7 +164,7 @@ export const MERCHANT_TRANSITIONS: readonly MerchantTransition[] = [
     from: "CLOSED",
     to: "PENDING_VALIDATION",
     actors: ["admin"],
-    reason: "Réouverture : le dossier repasse par la validation complète.",
+    reason: "Réouverture : le dossier repasse par la constitution complète.",
   },
 ];
 
@@ -292,8 +356,129 @@ export function canActivate(
 }
 
 export const MERCHANT_STATUS_LABEL_FR: Record<MerchantStatus, string> = {
-  PENDING_VALIDATION: "En cours de validation",
+  PENDING_VALIDATION: "Dossier en cours de constitution",
+  KYB_REVIEW: "Dossier en cours d'examen",
+  APPROVED: "Dossier validé, pas encore ouvert",
   ACTIVE: "Actif",
   SUSPENDED: "Suspendu",
   CLOSED: "Fermé",
 };
+
+// ---------------------------------------------------------------------------
+// Changements critiques
+// ---------------------------------------------------------------------------
+
+/**
+ * Éléments du dossier dont la modification invalide l'examen déjà fait.
+ *
+ * Ce ne sont pas « les champs importants » : ce sont ceux sur lesquels
+ * l'approbation portait. Changer un numéro d'immatriculation ou un bénéficiaire
+ * effectif, c'est présenter une entité que personne n'a examinée sous une
+ * validation obtenue pour une autre.
+ *
+ * `checkKybDossier` ne peut pas les voir : elle détecte le **vide**, pas le
+ * **changement**. Il faut deux photographies du dossier, pas une.
+ */
+export const CRITICAL_KYB_FIELDS = [
+  "BENEFICIAL_OWNER",
+  "BANK_ACCOUNT",
+  "LEGAL_FORM",
+  "REGISTRATION_NUMBER",
+  "LEGAL_NAME",
+] as const;
+
+export type CriticalKybField = (typeof CRITICAL_KYB_FIELDS)[number];
+
+export const CRITICAL_KYB_FIELD_LABEL_FR: Record<CriticalKybField, string> = {
+  BENEFICIAL_OWNER: "Bénéficiaire effectif",
+  BANK_ACCOUNT: "Compte bancaire",
+  LEGAL_FORM: "Forme juridique",
+  REGISTRATION_NUMBER: "Numéro d'immatriculation",
+  LEGAL_NAME: "Raison sociale",
+};
+
+/**
+ * Empreinte du dossier sur les seuls champs critiques.
+ *
+ * Séparée de `KybDossier` : celui-ci sert à juger la complétude, celle-là à
+ * détecter un changement. Les confondre ferait qu'ajouter une boutique
+ * relancerait un examen KYB, ce qui n'a pas de sens.
+ *
+ * Le compte bancaire n'est pas stocké ici en clair : seule une empreinte non
+ * réversible est comparée. Détecter un changement n'exige pas de connaître la
+ * valeur.
+ */
+export interface CriticalKybSnapshot {
+  readonly beneficialOwnerRef: string | null;
+  readonly bankAccountRef: string | null;
+  readonly legalForm: string | null;
+  readonly registrationNumber: string | null;
+  readonly legalName: string | null;
+}
+
+const CHAMP_PAR_CLÉ: readonly (readonly [keyof CriticalKybSnapshot, CriticalKybField])[] = [
+  ["beneficialOwnerRef", "BENEFICIAL_OWNER"],
+  ["bankAccountRef", "BANK_ACCOUNT"],
+  ["legalForm", "LEGAL_FORM"],
+  ["registrationNumber", "REGISTRATION_NUMBER"],
+  ["legalName", "LEGAL_NAME"],
+];
+
+/**
+ * Compare deux photographies du dossier et rend les champs critiques modifiés.
+ *
+ * La comparaison ignore la casse et les espaces superflus : « SAS Cercle
+ * Palace » et « sas cercle palace  » désignent la même raison sociale, et
+ * relancer un examen KYB sur une correction de frappe userait la procédure au
+ * point qu'on cesserait de la respecter.
+ *
+ * Passer d'une valeur renseignée à `null` **est** un changement : l'information
+ * sur laquelle l'approbation reposait a disparu.
+ */
+export function detectCriticalChanges(
+  avant: CriticalKybSnapshot,
+  après: CriticalKybSnapshot,
+): readonly CriticalKybField[] {
+  const normalise = (valeur: string | null): string | null =>
+    valeur === null ? null : valeur.trim().toLowerCase().replace(/\s+/g, " ");
+
+  return CHAMP_PAR_CLÉ.filter(([clé]) => normalise(avant[clé]) !== normalise(après[clé])).map(
+    ([, champ]) => champ,
+  );
+}
+
+/**
+ * États depuis lesquels un changement critique renvoie à l'examen.
+ *
+ * Un shop encore en constitution ou déjà fermé n'a rien à réexaminer : son
+ * dossier n'a pas été approuvé, ou ne l'est plus.
+ */
+const RÉEXAMINABLES: readonly MerchantStatus[] = ["APPROVED", "ACTIVE", "SUSPENDED"];
+
+export type CriticalChangeOutcome =
+  | { readonly applies: false; readonly reason: "NO_CRITICAL_CHANGE" | "NOT_REVIEWABLE" }
+  | {
+      readonly applies: true;
+      readonly toStatus: "KYB_REVIEW";
+      readonly changed: readonly CriticalKybField[];
+    };
+
+/**
+ * Décide si un changement de dossier doit interrompre la vente.
+ *
+ * Pure : elle constate et propose, elle n'écrit rien. C'est l'appelant qui
+ * applique la transition — et `assertMerchantTransition` la validera comme
+ * n'importe quelle autre, sans passe-droit.
+ */
+export function applyCriticalChange(input: {
+  readonly status: MerchantStatus;
+  readonly before: CriticalKybSnapshot;
+  readonly after: CriticalKybSnapshot;
+}): CriticalChangeOutcome {
+  const changed = detectCriticalChanges(input.before, input.after);
+  if (changed.length === 0) return { applies: false, reason: "NO_CRITICAL_CHANGE" };
+  if (!RÉEXAMINABLES.includes(input.status)) {
+    return { applies: false, reason: "NOT_REVIEWABLE" };
+  }
+  return { applies: true, toStatus: "KYB_REVIEW", changed };
+}

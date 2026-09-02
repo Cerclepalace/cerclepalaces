@@ -26,14 +26,29 @@ const preuve: LegalEvidence = {
 const POLITIQUE: CataloguePolicy = {
   evidence: [preuve],
   categories: [
-    { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
-    { categorySlug: "comestibles", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
+    { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
+    { categorySlug: "FOOD", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
   ],
   prohibitedSubstances: [{ substance: "Substance-A", aliases: ["SubA"], evidenceIds: [], decidedAt: NOW }],
   analytes: [
     { analyte: "THC", decision: "RESTRICTED", maxPercent: 0.3, evidenceIds: ["ev_source"], decidedAt: NOW },
     { analyte: "CBD", decision: "UNRESTRICTED", maxPercent: null, evidenceIds: [], decidedAt: NOW },
+    {
+      analyte: "DELTA9_THC",
+      decision: "RESTRICTED",
+      maxPercent: 0.3,
+      evidenceIds: ["ev_source"],
+      decidedAt: NOW,
+    },
+    {
+      analyte: "TOTAL_THC",
+      decision: "UNRESTRICTED",
+      maxPercent: null,
+      evidenceIds: [],
+      decidedAt: NOW,
+    },
   ],
+  conditionalAnalytes: [],
   reviewedAt: NOW,
   maxAgeDays: 180,
 };
@@ -53,8 +68,11 @@ const dossierComplet = {
   productName: "Fleur CBD — Amnesia",
   batchNumber: "LOT-2026-0417",
   supplier: "Chanvre du Sud SARL",
-  thcContent: 0.2,
+  laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.2,
+  totalThcPercent: 0.25,
   cbdContent: 12.4,
+  issuedAt: jours(-1),
   expiresAt: jours(365),
   documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
 } as const;
@@ -65,7 +83,7 @@ const candidat = (overrides: Partial<ListingCandidate> = {}): ListingCandidate =
   kyb: kybComplet,
   complianceStatus: "APPROVED",
   complianceExpiresAt: jours(90),
-  categorySlug: "fleurs-cbd",
+  categorySlug: "FLOWER",
   declaredComposition: ["fleur de chanvre"],
   declaredAnalytes: [
     { analyte: "THC", percent: 0.2 },
@@ -146,14 +164,14 @@ describe("politique de catalogue", () => {
 
   it("bloque une catégorie écartée par la plateforme", () => {
     expect(
-      evaluateListing(candidat({ categorySlug: "comestibles" }), POLITIQUE, NOW).blockers,
+      evaluateListing(candidat({ categorySlug: "FOOD" }), POLITIQUE, NOW).blockers,
     ).toEqual(["CATEGORY_PROHIBITED"]);
   });
 
   it("bloque une catégorie jamais examinée", () => {
     // Le silence n'autorise pas : c'est ce qui empêche de vendre par défaut ce
     // que personne n'a regardé.
-    const verdict = evaluateListing(candidat({ categorySlug: "resines" }), POLITIQUE, NOW);
+    const verdict = evaluateListing(candidat({ categorySlug: "RESIN" }), POLITIQUE, NOW);
     expect(verdict.blockers).toEqual(["CATEGORY_UNDECIDED"]);
     expect(verdict.findings[0]?.detail).toContain("jamais examinée");
   });
@@ -210,6 +228,8 @@ describe("politique de catalogue", () => {
       "CATEGORY_UNDECIDED",
       "ANALYTE_UNDECIDED",
       "ANALYTE_UNDECIDED",
+      "ANALYTE_UNDECIDED",
+      "ANALYTE_UNDECIDED",
     ]);
   });
 });
@@ -239,7 +259,7 @@ describe("forme du verdict", () => {
         kyb: { ...kybComplet, legalName: null },
         complianceStatus: "PENDING_REVIEW",
         complianceExpiresAt: jours(-2),
-        categorySlug: "comestibles",
+        categorySlug: "FOOD",
         declaredComposition: ["substance-a"],
         declaredAnalytes: [{ analyte: "THC", percent: 5 }],
         isListed: false,
@@ -319,6 +339,12 @@ describe("aucune règle de droit n'est écrite dans le code", () => {
       ],
     };
     expect(evaluateListing(candidat(), POLITIQUE, NOW).listable).toBe(true);
-    expect(evaluateListing(candidat(), strict, NOW).blockers).toEqual(["ANALYTE_ABOVE_LIMIT"]);
+    // La politique stricte remplace toute la table des analytes : le THC déclaré
+    // au certificat n'y est plus encadré, et devient donc non tranché.
+    expect(evaluateListing(candidat(), strict, NOW).blockers).toEqual([
+      "ANALYTE_ABOVE_LIMIT",
+      "ANALYTE_UNDECIDED",
+      "ANALYTE_UNDECIDED",
+    ]);
   });
 });

@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertMerchantTransition,
   canActivate,
+  canSell,
   checkKybDossier,
   type KybDossier,
   type MerchantStatus,
@@ -38,13 +39,28 @@ const preuve: LegalEvidence = {
 const POLITIQUE: CataloguePolicy = {
   evidence: [preuve],
   categories: [
-    { categorySlug: "fleurs-cbd", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
+    { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
   ],
   prohibitedSubstances: [],
   analytes: [
     { analyte: "THC", decision: "RESTRICTED", maxPercent: 0.3, evidenceIds: ["ev_source"], decidedAt: NOW },
     { analyte: "CBD", decision: "UNRESTRICTED", maxPercent: null, evidenceIds: [], decidedAt: NOW },
+    {
+      analyte: "DELTA9_THC",
+      decision: "RESTRICTED",
+      maxPercent: 0.3,
+      evidenceIds: ["ev_source"],
+      decidedAt: NOW,
+    },
+    {
+      analyte: "TOTAL_THC",
+      decision: "UNRESTRICTED",
+      maxPercent: null,
+      evidenceIds: [],
+      decidedAt: NOW,
+    },
   ],
+  conditionalAnalytes: [],
   reviewedAt: NOW,
   maxAgeDays: 180,
 };
@@ -71,8 +87,11 @@ const dossierCoa = {
   productName: "Fleur CBD — Amnesia",
   batchNumber: "LOT-2026-0417",
   supplier: "Chanvre du Sud SARL",
-  thcContent: 0.2,
+  laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.2,
+  totalThcPercent: 0.25,
   cbdContent: 12.4,
+  issuedAt: jours(-1),
   expiresAt: jours(365),
   documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
 } as const;
@@ -83,7 +102,7 @@ const produit = (overrides: Partial<ListingCandidate>): ListingCandidate => ({
   kyb: dossierVide,
   complianceStatus: "PENDING_REVIEW",
   complianceExpiresAt: jours(365),
-  categorySlug: "fleurs-cbd",
+  categorySlug: "FLOWER",
   declaredComposition: ["fleur de chanvre"],
   declaredAnalytes: [
     { analyte: "THC", percent: 0.2 },
@@ -112,6 +131,10 @@ describe("vendeur → produit → conformité → mise en vente", () => {
       assertMerchantTransition(statutShop, "ACTIVE", "merchant_owner", dossier),
     ).toThrow();
 
+    statutShop = assertMerchantTransition(statutShop, "KYB_REVIEW", "merchant_owner", dossier).to;
+    statutShop = assertMerchantTransition(statutShop, "APPROVED", "admin", dossier).to;
+    // Dossier validé — et le shop ne vend toujours pas.
+    expect(canSell(statutShop)).toBe(false);
     statutShop = assertMerchantTransition(statutShop, "ACTIVE", "admin", dossier).to;
     expect(statutShop).toBe("ACTIVE");
 
@@ -121,9 +144,12 @@ describe("vendeur → produit → conformité → mise en vente", () => {
         productName: "Fleur CBD — Amnesia",
         batchNumber: "LOT-2026-0417",
         supplier: "Chanvre du Sud SARL",
-        thcContent: 0.2,
+        laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.2,
+  totalThcPercent: 0.25,
         cbdContent: 12.4,
-        expiresAt: jours(365),
+        issuedAt: jours(-1),
+  expiresAt: jours(365),
         documentKinds: ["SUPPLIER_SHEET"],
       },
       NOW,
@@ -135,9 +161,12 @@ describe("vendeur → produit → conformité → mise en vente", () => {
         productName: "Fleur CBD — Amnesia",
         batchNumber: "LOT-2026-0417",
         supplier: "Chanvre du Sud SARL",
-        thcContent: 0.2,
+        laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.2,
+  totalThcPercent: 0.25,
         cbdContent: 12.4,
-        expiresAt: jours(365),
+        issuedAt: jours(-1),
+  expiresAt: jours(365),
         documentKinds: ["SUPPLIER_SHEET", "CERTIFICATE_OF_ANALYSIS"],
       },
       NOW,
@@ -192,9 +221,11 @@ describe("vendeur → produit → conformité → mise en vente", () => {
     };
 
     expect(evaluateListing(enRayon, POLITIQUE, NOW).listable).toBe(true);
+    // La catégorie et les deux plafonds reposaient sur la même source : tout
+    // tombe ensemble, sans qu'aucun produit n'ait bougé.
     expect(evaluateListing(enRayon, politiqueÉbranlée, NOW).blockers).toEqual([
       "CATEGORY_UNDECIDED",
-      // Le plafond THC reposait sur la même source : il tombe aussi.
+      "ANALYTE_UNDECIDED",
       "ANALYTE_UNDECIDED",
     ]);
   });
@@ -223,7 +254,7 @@ describe("vendeur → produit → conformité → mise en vente", () => {
       ["shop non validé", { merchantStatus: "PENDING_VALIDATION" }],
       ["dossier incomplet", { kyb: dossierVide }],
       ["conformité non validée", { complianceStatus: "PENDING_REVIEW" }],
-      ["catégorie non tranchée", { categorySlug: "resines" }],
+      ["catégorie non tranchée", { categorySlug: "RESIN" }],
       ["taux hors plafond", { declaredAnalytes: [{ analyte: "THC", percent: 4 }] }],
       ["produit non listé", { isListed: false }],
       ["stock épuisé", { stock: 0 }],

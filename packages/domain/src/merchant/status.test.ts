@@ -47,12 +47,33 @@ describe("machine d'état du shop", () => {
 
   it("ne laisse jamais un shop se valider lui-même", () => {
     // La validation est une décision de la plateforme. Si un commerçant pouvait
-    // la déclencher, le KYB ne servirait à rien.
-    expect(
-      findMerchantTransition("PENDING_VALIDATION", "ACTIVE")?.actors,
-    ).toEqual(["admin"]);
-    expect(allowedNextMerchantStatuses("PENDING_VALIDATION", "merchant_owner")).toEqual(["CLOSED"]);
+    // la déclencher, le KYB ne servirait à rien. Il peut déposer son dossier et
+    // renoncer — rien d'autre.
+    expect(findMerchantTransition("KYB_REVIEW", "APPROVED")?.actors).toEqual(["admin"]);
+    expect(findMerchantTransition("APPROVED", "ACTIVE")?.actors).toEqual(["admin"]);
+    expect([...allowedNextMerchantStatuses("PENDING_VALIDATION", "merchant_owner")].sort()).toEqual([
+      "CLOSED",
+      "KYB_REVIEW",
+    ]);
     expect(allowedNextMerchantStatuses("SUSPENDED", "merchant_owner")).toEqual([]);
+  });
+
+  it("n'ouvre à aucun rôle non-admin un chemin vers ACTIVE", () => {
+    for (const statut of MERCHANT_STATUSES) {
+      for (const acteur of ["merchant_owner", "merchant_staff", "customer", "driver", "support_agent", "system"] as const) {
+        expect(
+          allowedNextMerchantStatuses(statut, acteur),
+          `${statut} / ${acteur}`,
+        ).not.toContain("ACTIVE");
+      }
+    }
+  });
+
+  it("sépare la validation du dossier de l'ouverture commerciale", () => {
+    // APPROVED ne vend pas. C'est la propriété qui justifie l'existence de
+    // l'état : approuver un KYB ne doit pas mettre un shop en ligne.
+    expect(canSell("APPROVED")).toBe(false);
+    expect(allowedNextMerchantStatuses("KYB_REVIEW", "admin")).not.toContain("ACTIVE");
   });
 
   it("laisse une suspension se lever", () => {
@@ -62,7 +83,7 @@ describe("machine d'état du shop", () => {
     expect(allowedNextMerchantStatuses("SUSPENDED", "admin")).toContain("ACTIVE");
   });
 
-  it("ne laisse sortir de CLOSED que vers une nouvelle validation", () => {
+  it("ne laisse sortir de CLOSED que vers une nouvelle constitution", () => {
     expect(allowedNextMerchantStatuses("CLOSED", "admin")).toEqual(["PENDING_VALIDATION"]);
     expect(allowedNextMerchantStatuses("CLOSED", "merchant_owner")).toEqual([]);
   });
@@ -71,26 +92,33 @@ describe("machine d'état du shop", () => {
     expect(() => assertMerchantTransition("PENDING_VALIDATION", "SUSPENDED", "admin", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
+    // Le saut par-dessus l'examen n'existe pas non plus.
+    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "admin", dossierComplet())).toThrow(
+      MerchantTransitionError,
+    );
   });
 
   it("refuse un acteur non habilité", () => {
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "support_agent", dossierComplet())).toThrow(
+    expect(() => assertMerchantTransition("APPROVED", "ACTIVE", "support_agent", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "merchant_owner", dossierComplet())).toThrow(
+    expect(() => assertMerchantTransition("APPROVED", "ACTIVE", "merchant_owner", dossierComplet())).toThrow(
       MerchantTransitionError,
     );
   });
 
   it("accepte le chemin nominal", () => {
-    expect(assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "admin", dossierComplet()).to).toBe("ACTIVE");
+    const dossier = dossierComplet();
+    expect(assertMerchantTransition("PENDING_VALIDATION", "KYB_REVIEW", "merchant_owner", dossier).to).toBe("KYB_REVIEW");
+    expect(assertMerchantTransition("KYB_REVIEW", "APPROVED", "admin", dossier).to).toBe("APPROVED");
+    expect(assertMerchantTransition("APPROVED", "ACTIVE", "admin", dossier).to).toBe("ACTIVE");
   });
 });
 
 describe("droit de vendre", () => {
   it("n'est ouvert qu'à un shop actif", () => {
     expect(canSell("ACTIVE")).toBe(true);
-    for (const statut of ["PENDING_VALIDATION", "SUSPENDED", "CLOSED"] as const) {
+    for (const statut of ["PENDING_VALIDATION", "KYB_REVIEW", "APPROVED", "SUSPENDED", "CLOSED"] as const) {
       expect(canSell(statut), statut).toBe(false);
     }
   });

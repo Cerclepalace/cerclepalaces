@@ -195,20 +195,116 @@ séparément bloque, à tout moment — shop suspendu, dossier redevenu incomple
 certificat expiré, preuve juridique remplacée. Si l'un d'eux passait, une porte
 serait ouverte quelque part.
 
+## La taxonomie produit
+
+Liste **fermée** de dix catégories, comparées **exactement** — ni la casse ni les
+tirets ne sont rattrapés. Tolérer « flower » masquerait une saisie libre là où
+l'on attend une valeur produite par le système.
+
+```
+FLOWER · RESIN · OIL_NON_FOOD · COSMETIC · FOOD
+SUPPLEMENT · VAPE · ACCESSORY · OTHER · PROHIBITED_DERIVATIVE
+```
+
+**Il n'existe pas de catégorie « CBD ».** Un produit au CBD peut être une fleur,
+une huile, un aliment ou un cosmétique, et ces natures ne relèvent pas des mêmes
+règles. Les confondre sous une étiquette unique effacerait précisément la
+distinction que la conformité doit faire.
+
+Deux catégories sont **fermées par construction** :
+
+- `PROHIBITED_DERIVATIVE` — aucune politique ne peut l'ouvrir, même avec une
+  preuve vérifiée. C'est le seul endroit où le code refuse d'obéir à sa
+  politique, et c'est volontaire : cette catégorie existe pour nommer ce qui ne
+  se distribue pas.
+- `OTHER` — ce n'est pas une catégorie, c'est l'absence de classement. L'ouvrir
+  reviendrait à autoriser tout ce que personne n'a su ranger.
+
+Quatre refus distincts, parce qu'ils se corrigent de quatre façons :
+`CATEGORY_UNKNOWN` (saisir une valeur de la taxonomie), `CATEGORY_UNCLASSIFIED`
+(classer le produit), `CATEGORY_UNDECIDED` (obtenir une décision),
+`CATEGORY_PROHIBITED` (renoncer).
+
+### Ce que le code ne peut pas faire
+
+Il vérifie qu'une **déclaration** est recevable. Il ne vérifie **pas** qu'elle
+est vraie. Un produit déclaré `FLOWER` alors qu'il relève de
+`PROHIBITED_DERIVATIVE` franchit toutes les portes de ce module. Cette limite est
+structurelle, pas un défaut à corriger : rien dans une chaîne de caractères ne
+dit la nature matérielle d'une marchandise. Elle se traite par le contrôle humain
+et la preuve documentaire.
+
+## Delta-9 et THC total ne se substituent pas
+
+Le certificat porte **deux** mesures, et elles ne disent pas la même chose :
+
+- `delta9ThcPercent` — la mesure sur laquelle un plafond peut porter ;
+- `totalThcPercent` — informatif, il agrège des formes qui n'ont pas le même
+  statut, et n'est confronté à aucun plafond par ce module.
+
+Les confondre dans un sens refuserait des produits conformes ; dans l'autre, en
+laisserait passer. Aucun seuil n'est écrit dans le code : les plafonds vivent
+dans la politique, révisables et adossés à une preuve.
+
+Le certificat exige aussi un **laboratoire émetteur** — sans lui, il n'y a
+personne à recontacter en cas de doute — et une **date d'émission** ni absente,
+ni illisible, ni future : une analyse ne peut pas avoir été faite demain.
+
+## Cycle de vie du vendeur : six états, un seul vend
+
+```
+PENDING_VALIDATION → KYB_REVIEW → APPROVED → ACTIVE
+                          ↑                     │
+                          └──── CRITICAL_CHANGE ┘
+```
+
+`APPROVED` **ne vend pas**. Valider un dossier et ouvrir un commerce sont deux
+décisions distinctes, prises à des moments différents et parfois par des
+personnes différentes ; les fondre en une seule ferait qu'approuver un KYB
+mettrait un shop en ligne — ce que personne ne veut au moment où il signe
+l'approbation.
+
+### Changement critique
+
+Cinq champs, et ce ne sont pas « les champs importants » : ce sont ceux sur
+lesquels l'approbation portait. `BENEFICIAL_OWNER`, `BANK_ACCOUNT`, `LEGAL_FORM`,
+`REGISTRATION_NUMBER`, `LEGAL_NAME`.
+
+Les modifier renvoie un shop `APPROVED`, `ACTIVE` ou `SUSPENDED` en `KYB_REVIEW`,
+et il faut repasser par `APPROVED` puis `ACTIVE` pour revendre. Aucun raccourci.
+
+La comparaison ignore la casse et les espaces superflus : relancer un examen KYB
+sur une correction de frappe userait la procédure au point qu'on cesserait de la
+respecter. Le compte bancaire n'est comparé que par empreinte — détecter un
+changement n'exige pas de connaître la valeur.
+
+## Dépendances entre analyses
+
+Mécanisme générique, **sans aucun contenu juridique** : « si tel analyte est
+mesuré au-dessus de tel seuil, alors tels autres deviennent obligatoires ». La
+politique fournit les règles ; le code n'en connaît aucune.
+
+Trois issues, et aucune n'est un silence : satisfaite, analyse manquante (refus),
+ou dépendance que personne ne peut sourcer (refus également — une exigence non
+sourçable ne doit ni bloquer ni s'effacer en silence).
+
+## Garde anti-monétaire
+
+Un test statique relit tout `src/` et cherche des **identifiants**, pas des mots :
+les commentaires sont retirés avant analyse, pour qu'expliquer le gel reste
+possible. Il détecte camelCase, snake_case, SCREAMING_CASE, noms isolés, chaînes
+littérales et imports.
+
+Les exceptions sont accordées **jeton par jeton**, pas fichier par fichier :
+`order/status.ts` peut nommer `PENDING_PAYMENT` sans pouvoir gagner un
+`addPayout()` en silence. Neuf exceptions, chacune justifiée par écrit.
+
+Le garde a relevé un nom qui promettait ce que le système ne fait pas : l'étape
+de tunnel `checkout_started`, renommée `order_review`. Il n'existe aucun tunnel
+de paiement.
+
 ## Ce qui n'est pas fait
 
-- **Vocabulaires fermés (A-08).** `categorySlug` et `analyte` restent des chaînes
-  libres. Rien n'empêche de déclarer un produit sous une catégorie qui n'est pas
-  la sienne, et rien ne distingue « delta-9 THC » de « THC total ». Une valeur
-  inconnue bloque — l'échec est du bon côté — mais l'étiquetage n'est pas
-  vérifiable.
-- **Revalidation sur changement critique (A-10).** Modifier un numéro
-  d'immatriculation, une raison sociale ou un bénéficiaire effectif ne repasse
-  pas le shop en validation. `checkKybDossier` détecte le **vide**, pas le
-  **changement**.
-- **Règles conditionnelles entre analytes (A-12).** Aucune règle ne peut dépendre
-  de la valeur d'un autre analyte.
-- **Garde automatisée anti-monétaire (A-13).** Les contrôles restent manuels.
 - **Persistance.** La politique, les preuves et les décisions ne sont pas encore
   en base. Le domaine est complet et testé ; il n'a pas d'adaptateur.
 - **Services API et back-office** : saisir une politique, vérifier une preuve,

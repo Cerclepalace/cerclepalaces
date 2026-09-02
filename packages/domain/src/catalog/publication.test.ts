@@ -13,8 +13,11 @@ const dossier = (overrides: Partial<ComplianceSubmission> = {}): ComplianceSubmi
   productName: "Fleur CBD — Amnesia",
   batchNumber: "LOT-2026-0417",
   supplier: "Chanvre du Sud SARL",
-  thcContent: 0.28,
+  laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.28,
+  totalThcPercent: 0.3,
   cbdContent: 12.4,
+  issuedAt: jours(-1),
   expiresAt: jours(365),
   documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
   ...overrides,
@@ -49,10 +52,13 @@ describe("dépôt d'un dossier de conformité", () => {
     const résultat = checkComplianceSubmission(
       {
         productName: null,
+        laboratory: null,
         batchNumber: "  ",
         supplier: null,
-        thcContent: null,
+        delta9ThcPercent: null,
+        totalThcPercent: null,
         cbdContent: null,
+        issuedAt: null,
         expiresAt: null,
         documentKinds: [],
       },
@@ -61,14 +67,16 @@ describe("dépôt d'un dossier de conformité", () => {
     expect(résultat.gaps).toEqual([
       "MISSING_NAME",
       "MISSING_CERTIFICATE_OF_ANALYSIS",
+      "MISSING_LABORATORY",
       "MISSING_BATCH_NUMBER",
       "MISSING_SUPPLIER",
       "MISSING_DECLARED_CONTENTS",
+      "MISSING_ISSUE_DATE",
     ]);
   });
 
   it("exige les deux taux, pas un seul", () => {
-    expect(checkComplianceSubmission(dossier({ thcContent: null }), NOW).gaps).toEqual([
+    expect(checkComplianceSubmission(dossier({ delta9ThcPercent: null }), NOW).gaps).toEqual([
       "MISSING_DECLARED_CONTENTS",
     ]);
     expect(checkComplianceSubmission(dossier({ cbdContent: null }), NOW).gaps).toEqual([
@@ -79,7 +87,7 @@ describe("dépôt d'un dossier de conformité", () => {
   it("accepte un taux de zéro, qui est une valeur déclarée", () => {
     // 0 est une information, pas une absence : le confondre avec `null`
     // refuserait un produit sans THC, ce qui est exactement l'inverse du but.
-    expect(checkComplianceSubmission(dossier({ thcContent: 0 }), NOW).complete).toBe(true);
+    expect(checkComplianceSubmission(dossier({ delta9ThcPercent: 0 }), NOW).complete).toBe(true);
   });
 
   it("refuse un certificat déjà expiré au dépôt", () => {
@@ -100,7 +108,18 @@ describe("dépôt d'un dossier de conformité", () => {
 
   it("n'invente aucun manque hors de la liste déclarée", () => {
     const résultat = checkComplianceSubmission(
-      { productName: null, batchNumber: null, supplier: null, thcContent: null, cbdContent: null, expiresAt: jours(-5), documentKinds: [] },
+      {
+        productName: null,
+        laboratory: null,
+        batchNumber: null,
+        supplier: null,
+        delta9ThcPercent: null,
+        totalThcPercent: null,
+        cbdContent: null,
+        issuedAt: null,
+        expiresAt: jours(-5),
+        documentKinds: [],
+      },
       NOW,
     );
     for (const gap of résultat.gaps) expect(SUBMISSION_GAPS).toContain(gap);

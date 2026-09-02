@@ -48,8 +48,8 @@ const preuve: LegalEvidence = {
 const POLITIQUE: CataloguePolicy = {
   evidence: [preuve],
   categories: [
-    { categorySlug: "categorie-test-a", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
-    { categorySlug: "categorie-test-b", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
+    { categorySlug: "FLOWER", decision: "ALLOWED", evidenceIds: ["ev_source"], decidedAt: NOW, note: null },
+    { categorySlug: "FOOD", decision: "PROHIBITED", evidenceIds: [], decidedAt: NOW, note: null },
   ],
   prohibitedSubstances: [
     {
@@ -61,7 +61,22 @@ const POLITIQUE: CataloguePolicy = {
   ],
   analytes: [
     { analyte: "ANALYTE-ENCADRE", decision: "RESTRICTED", maxPercent: 1, evidenceIds: ["ev_source"], decidedAt: NOW },
+    {
+      analyte: "DELTA9_THC",
+      decision: "RESTRICTED",
+      maxPercent: 0.3,
+      evidenceIds: ["ev_source"],
+      decidedAt: NOW,
+    },
+    {
+      analyte: "TOTAL_THC",
+      decision: "UNRESTRICTED",
+      maxPercent: null,
+      evidenceIds: [],
+      decidedAt: NOW,
+    },
   ],
+  conditionalAnalytes: [],
   reviewedAt: NOW,
   maxAgeDays: 180,
 };
@@ -78,8 +93,11 @@ const dossier = {
   productName: "Produit de test",
   batchNumber: "LOT-TEST-1",
   supplier: "Fournisseur de test",
-  thcContent: 0.5,
+  laboratory: "Laboratoire de test",
+  delta9ThcPercent: 0.2,
+  totalThcPercent: 0.25,
   cbdContent: 10,
+  issuedAt: jours(-1),
   expiresAt: jours(365),
   documentKinds: ["CERTIFICATE_OF_ANALYSIS"],
 } as const;
@@ -90,7 +108,7 @@ const conforme = (overrides: Partial<ListingCandidate> = {}): ListingCandidate =
   kyb,
   complianceStatus: "APPROVED",
   complianceExpiresAt: jours(90),
-  categorySlug: "categorie-test-a",
+  categorySlug: "FLOWER",
   declaredComposition: ["ingrédient neutre"],
   declaredAnalytes: [{ analyte: "ANALYTE-ENCADRE", percent: 0.5 }],
   isListed: true,
@@ -270,7 +288,7 @@ describe("A-07 — activer un shop au dossier vide", () => {
   };
 
   it("refuse l'activation, même demandée par un admin", () => {
-    expect(() => assertMerchantTransition("PENDING_VALIDATION", "ACTIVE", "admin", vide)).toThrow(
+    expect(() => assertMerchantTransition("APPROVED", "ACTIVE", "admin", vide)).toThrow(
       /dossier incomplet/i,
     );
   });
@@ -323,7 +341,7 @@ describe("A-11 — soutenir une autorisation avec une preuve impossible", () => 
 
   it("ferme la catégorie dont la seule preuve est datée du futur", () => {
     const futur: CataloguePolicy = { ...POLITIQUE, evidence: [{ ...preuve, verifiedAt: jours(30) }] };
-    expect(decideCategory(futur, "categorie-test-a", NOW)).toEqual({
+    expect(decideCategory(futur, "FLOWER", NOW)).toEqual({
       decision: "UNDECIDED",
       cause: "AUTHORISATION_UNSUPPORTED",
     });
@@ -333,7 +351,13 @@ describe("A-11 — soutenir une autorisation avec une preuve impossible", () => 
     // Une preuve retirée après validation ne laisse rien derrière elle.
     const sansPreuve: CataloguePolicy = { ...POLITIQUE, evidence: [] };
     const verdict = evaluateListing(conforme(), sansPreuve, NOW);
-    expect(verdict.blockers).toEqual(["CATEGORY_UNDECIDED", "ANALYTE_UNDECIDED"]);
+    // Trois motifs : la catégorie, le plafond de l'analyte encadré, et celui du
+    // delta-9 — tous trois citaient la même source.
+    expect(verdict.blockers).toEqual([
+      "CATEGORY_UNDECIDED",
+      "ANALYTE_UNDECIDED",
+      "ANALYTE_UNDECIDED",
+    ]);
   });
 });
 
@@ -352,7 +376,7 @@ describe("contourner une garde par une autre route", () => {
 
   it("ne laisse pas un stock disponible compenser une catégorie interdite", () => {
     expect(
-      evaluateListing(conforme({ categorySlug: "categorie-test-b", stock: 999 }), POLITIQUE, NOW)
+      evaluateListing(conforme({ categorySlug: "FOOD", stock: 999 }), POLITIQUE, NOW)
         .listable,
     ).toBe(false);
   });
