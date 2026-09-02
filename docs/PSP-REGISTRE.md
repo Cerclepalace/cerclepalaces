@@ -67,7 +67,10 @@ Passe à `VERIFIED` dès que l'e-mail est archivé avec expéditeur, date et obj
 identifiables. Tant que la trace n'est pas retrouvable, le niveau reste
 `CONVERGENT` — le fait est tenu pour vrai, il n'est pas encore opposable.
 
-² La preuve porte **uniquement sur l'état du ticket**, pas sur une décision.
+² La preuve porte **uniquement sur l'état du ticket**, pas sur une décision. Une
+demande de qualification formelle est **rédigée et non envoyée** au 2 septembre
+2026 — cela ne change aucun axe : `PSP_STATUS` reste `UNKNOWN` jusqu'à un envoi
+daté et prouvé.
 
 ³ Aucun contenu de réponse n'a été porté à ce registre. Voir plus bas.
 
@@ -117,8 +120,14 @@ compter parmi les refus.
   Underwriting, refus de Stripe Connect, refus d'acquéreur, refus Visa, refus
   Mastercard, refus de MCC. Aucun.
 - **ACTION** — rouvrir dans le même fil, pour conserver l'historique, et demander
-  explicitement un transfert vers Risk / Compliance / Underwriting. Message prêt,
-  voir `PSP-STRIPE-RELANCE.md`.
+  explicitement un transfert vers Risk / Compliance / Underwriting. Message prêt
+  (`PSP-STRIPE-RELANCE.md`), dossier de qualification prêt à joindre
+  (`PSP-STRIPE-DOSSIER.md`). Les deux couvrent les dix catégories de la
+  taxonomie, les modèles A et B sans en choisir un, l'acquéreur, le MCC, Visa et
+  Mastercard séparément, les remboursements, les impayés, les réserves et la
+  résiliation. **`HUMAN DECISION REQUIRED`** — l'envoi est une action humaine,
+  impossible depuis cet environnement ; la démarche reste `PREPARED` tant que la
+  date d'envoi et sa preuve manquent.
 
 ### RoxPay et Stancer — refus écrits du 21 août 2026
 
@@ -268,8 +277,9 @@ Ce qui ne doit pas être écrit, parce que ce serait faux :
 Le dépôt ne pouvait pas exprimer l'état de ce dossier. « Acquéreur inconnu » et
 « acquéreur approuvé » s'y ressemblaient : deux absences de `false`.
 
-`packages/domain/src/psp/qualification.ts` porte désormais les quatorze points
-ci-dessus comme un modèle typé, avec cinq réponses possibles — `YES`, `NO`,
+`packages/domain/src/psp/qualification.ts` porte désormais **dix-sept** points
+comme un modèle typé — les quatorze d'origine, plus les trois ajoutés le
+2 septembre 2026 par la revue de cohérence ci-dessous —, avec cinq réponses possibles — `YES`, `NO`,
 `YES_WITH_CONDITIONS`, `NO_ANSWER`, `UNKNOWN` — et une liste fermée de sources.
 Quatre d'entre elles engagent : e-mail écrit, contrat signé, courrier officiel,
 décision du portail marchand. Les quatre autres — appel commercial, documentation
@@ -279,8 +289,8 @@ test le vérifie pour chacune.
 Trois propriétés, toutes vérifiées par mutation :
 
 - **Le verdict par défaut est le refus.** Un dossier vide n'est pas « en
-  attente », il est non qualifié sur les quatorze points.
-- **Un seul point manquant bloque.** Testé sur chacun des quatorze séparément.
+  attente », il est non qualifié sur les dix-sept points.
+- **Un seul point manquant bloque.** Testé sur chacun des dix-sept séparément.
 - **Le prestataire n'est pas l'acquéreur.** `acquiringStillUnknown()` dit
   précisément « ils ont répondu, personne ne sait qui souscrit » — la phrase la
   plus fréquente de ce dossier, qu'un statut unique rendrait indicible.
@@ -321,9 +331,18 @@ représentation n'est pas neutre : il pousse à ranger un fait dans la case la
 plus proche, ce qui est la définition même de l'inférence que ce registre
 interdit.
 
-### C-1 · `CARD_NETWORK_STATUS` est un axe obligatoire qu'aucun code ne porte
+### C-1 · `CARD_NETWORK_STATUS` était un axe obligatoire qu'aucun code ne portait
 
-`ACTION REQUISE.` Les six axes ci-dessus imposent Visa et Mastercard
+**`CLOS le 2 septembre 2026`** — deux points ajoutés,
+`VISA_ACCEPTANCE_CONFIRMED` et `MASTERCARD_ACCEPTANCE_CONFIRMED`, avec un
+groupe `CARD_NETWORK_POINTS` et `cardNetworksStillUnknown()`. Les neuf dossiers
+vides passent de quatorze à dix-sept blocages avec `C-2` : **trois de plus,
+jamais un de moins**.
+Deux mutations le vérifient — retirer les points des dix-sept, ou y remettre
+`PRODUCT_CATEGORIES_ACCEPTED`, casse quatre tests puis deux. Constat d'origine
+ci-dessous, conservé.
+
+`ACTION REQUISE À L'ORIGINE.` Les six axes ci-dessus imposent Visa et Mastercard
 **séparément**. Les quatorze points de `qualification.ts` n'en contiennent
 aucun, et `PSP-DEMANDE-TYPE.md` fait explicitement contribuer ses questions 6 et
 7 — acceptation Visa, acceptation Mastercard — au point
@@ -334,25 +353,26 @@ produits sans dire un mot des réseaux fait passer ce point à `YES`. Le modèle
 affiche alors une réponse là où l'information n'existe pas. C'est une inférence,
 interdite par la règle « aucune ne s'infère d'une autre ».
 
-Correction proposée : deux points supplémentaires,
-`VISA_ACCEPTANCE_CONFIRMED` et `MASTERCARD_ACCEPTANCE_CONFIRMED`, qui
-deviendraient `UNKNOWN` pour les neuf dossiers — donc **deux blocages de plus**,
-jamais un de moins. Cette correction est indépendante des décisions 05 et 09 :
-elle n'ajoute aucune logique transactionnelle et ne présuppose aucun modèle de
-vente. Elle change en revanche le décompte « quatorze points », repris dans les
-briefs. **`HUMAN DECISION REQUIRED`** sur le renommage.
+Correction appliquée telle que proposée. Elle n'ajoute aucune logique
+transactionnelle et ne présuppose aucun modèle de vente. Elle change en revanche
+le décompte : **les quatorze points sont désormais dix-sept**, et les briefs qui
+citent « quatorze » sont à mettre à jour.
 
-### C-2 · Trois des douze confirmations n'ont pas de case
+### C-2 · Trois des douze confirmations n'avaient pas de case
 
-`ACTION REQUISE.` La liste des douze confirmations à obtenir par écrit et la
+**`CLOS le 2 septembre 2026`** — les trois ont désormais la leur :
+`VISA_ACCEPTANCE_CONFIRMED`, `MASTERCARD_ACCEPTANCE_CONFIRMED` et
+`TERMINATION_CONDITIONS_STATED`. Constat d'origine ci-dessous, conservé.
+
+`ACTION REQUISE À L'ORIGINE.` La liste des douze confirmations à obtenir par écrit et la
 liste des quatorze points typés ne se recouvrent pas. Trois éléments des douze
 n'ont aucun équivalent dans le code :
 
 | Confirmation exigée | Point correspondant |
 |---|---|
-| 4 · Acceptation Visa | aucun (voir C-1) |
-| 5 · Acceptation Mastercard | aucun (voir C-1) |
-| 12 · Conditions de résiliation et de fonds | aucun — `PRODUCTION_CONDITIONS_STATED` porte le passage en production, pas la sortie |
+| 4 · Acceptation Visa | aucun → `VISA_ACCEPTANCE_CONFIRMED` |
+| 5 · Acceptation Mastercard | aucun → `MASTERCARD_ACCEPTANCE_CONFIRMED` |
+| 12 · Conditions de résiliation et de fonds | aucun — `PRODUCTION_CONDITIONS_STATED` porte le passage en production, pas la sortie → `TERMINATION_CONDITIONS_STATED` |
 
 Une confirmation sans case ne peut pas manquer visiblement : elle est oubliée en
 silence. C'est le contraire de ce que le registre est censé garantir.

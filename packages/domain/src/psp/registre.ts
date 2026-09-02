@@ -79,12 +79,17 @@ export const NUVEI: ProviderDossier = {
  * messages archivés établissent une mise en attente puis une clôture
  * administrative du fil. Ni l'une ni l'autre n'est une décision : les
  * transcrire en `NO` inventerait un refus qui n'existe pas, et en `YES` une
- * acceptation qui n'existe pas davantage. Les quatorze points restent donc
+ * acceptation qui n'existe pas davantage. Les dix-sept points restent donc
  * `UNKNOWN`, ce qui est leur état exact.
  *
  * La démarche de réouverture est enregistrée comme `PREPARED` : le message est
  * rédigé, il n'est pas parti. Tant que `sentAt` est vide, personne n'attend de
- * réponse.
+ * réponse — et le compteur ne tourne pas.
+ *
+ * `PREPARED` est ici le seul état exact. « Qualification demandée » décrirait
+ * une demande partie ; elle ne l'est pas. La distinction n'est pas
+ * bureaucratique : elle décide si l'absence de réponse, dans trois semaines,
+ * signifie « Stripe ne répond pas » ou « personne n'a envoyé le message ».
  */
 export const STRIPE: ProviderDossier = {
   providerName: "Stripe",
@@ -109,7 +114,7 @@ export const STRIPE: ProviderDossier = {
       sentAt: null,
       proofOfSending: null,
       answeredAt: null,
-      note: "Message de réouverture rédigé, voir docs/PSP-STRIPE-RELANCE.md. Non envoyé : l'envoi est une action manuelle.",
+      note: "Demande de qualification formelle rédigée : message docs/PSP-STRIPE-RELANCE.md, dossier docs/PSP-STRIPE-DOSSIER.md. Couvre les dix catégories de la taxonomie, les modèles A et B, l'acquéreur, le MCC, Visa et Mastercard séparément, les remboursements, impayés, réserves et la résiliation. Non envoyée : l'envoi est une action humaine, impossible depuis cet environnement.",
     },
   ],
 };

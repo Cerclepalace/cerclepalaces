@@ -10,12 +10,12 @@ destinataire.
 
 ## Pourquoi ce format
 
-Les questions suivent l'ordre où le code nomme ses quatorze points de
+Les questions suivent l'ordre où le code nomme ses dix-sept points de
 qualification, et la plupart n'en portent qu'un. Une réponse groupée — « oui,
-nous acceptons ce type d'activité » — ne remplit qu'une case ; les treize autres
+nous acceptons ce type d'activité » — ne remplit qu'une case ; les seize autres
 restent `UNKNOWN`, et le message est construit pour que cela se voie. La table
 de correspondance en fin de document dit exactement quelle question remplit
-quelle case, y compris les quatre qui ne se rangent pas une pour une.
+quelle case, y compris les deux qui ne se rangent pas une pour une.
 
 La première question est celle qui décide de tout, et elle est posée en
 premier : **qui souscrit le risque ?** Un prestataire qui ne peut pas nommer son
@@ -37,14 +37,19 @@ We are requesting a written eligibility assessment before any live payment activ
 
 **Applicant.** A French company operating a multi-vendor marketplace. The marketplace onboards professional third-party sellers, performs seller KYB/KYC, collects customer payments, deducts a marketplace commission and arranges seller settlement to verified bank accounts. Card-not-present, France-based customers, EUR.
 
-**Product categories under review.** Hemp-derived, non-ingestible:
-- accessories containing no active compound;
-- cosmetics;
-- oils positioned exclusively for topical, non-food use;
-- flowers;
-- resins.
+**Product categories under review.** The platform uses a closed taxonomy of ten categories; a product matching none of them cannot be listed. We are not asserting that all of these are acceptable — we are asking you to qualify each one:
+- `FLOWER` — hemp flower;
+- `RESIN` — hemp resin;
+- `OIL_NON_FOOD` — oils positioned exclusively for topical, non-food use;
+- `COSMETIC` — cosmetics;
+- `FOOD` — foodstuffs and beverages;
+- `SUPPLEMENT` — food supplements;
+- `VAPE` — vaping products;
+- `ACCESSORY` — accessories containing no active compound;
+- `OTHER` — unclassified; never listed, awaits human classification;
+- `PROHIBITED_DERIVATIVE` — excluded by design, structurally closed in the platform.
 
-**Explicitly excluded from scope.** Vaping products, food, beverages, supplements, ingestible oils, and semi-synthetic cannabinoid derivatives (HHC, HHC-O, HHCP, H4-CBD, H2-CBD, THCP and comparable compounds).
+**Explicitly excluded from scope by project decision.** Semi-synthetic cannabinoid derivatives: HHC, HHC-O, HHCP, HHCPO, H4-CBD, H2-CBD, THCP and comparable compounds. We state this as our own commercial and compliance scope, not as a statement of law.
 
 Could you please forward this to the team competent for restricted or high-risk activities, and provide written answers to the following? A separate answer per question would help us — a single global answer leaves the other points unresolved on our side.
 
@@ -57,7 +62,7 @@ Could you please forward this to the team competent for restricted or high-risk 
 **Acceptance**
 
 4. Is this activity — hemp-derived products, France, card-not-present — eligible with that acquirer? Please state eligible, ineligible, or subject to enhanced underwriting.
-5. For each of the five categories listed above, taken separately: eligible, ineligible, restricted, or subject to enhanced underwriting?
+5. For each of the categories listed above, taken separately: eligible, ineligible, restricted, or subject to enhanced underwriting?
 6. Can Visa card acceptance be provided for each eligible category?
 7. Can Mastercard card acceptance be provided for each eligible category?
 
@@ -74,6 +79,8 @@ Could you please forward this to the team competent for restricted or high-risk 
 13. What are the chargeback thresholds, penalties and remediation conditions?
 14. What are the refund and settlement rules, including timing, holds and conditions under which funds may be withheld?
 15. What is required, in writing, before any live processing may begin?
+
+16. On termination: what notice applies, and what becomes of pending transactions, refunds, chargebacks and remaining funds after the account is closed?
 
 We understand that any final decision remains subject to full KYB, underwriting, contractual review, product documentation and ongoing monitoring. We are not asking for a commitment today — we are asking for a written position we can rely on.
 
@@ -111,11 +118,12 @@ reste `PREPARED` — ce qui est exact tant que rien ne permet de prouver l'envoi
 
 ## Lecture d'une réponse
 
-Onze des quinze questions portent **un seul** point de qualification. Les quatre
-autres ne s'y rangent pas proprement, et la table le dit plutôt que de le
-masquer : les questions 6 et 7 partagent une case faute d'axe réseaux cartes
-dans le modèle — écart `C-1` de la revue de cohérence, `PSP-REGISTRE.md` —, la
-question 10 n'en porte aucune, la question 14 en porte deux.
+Quatorze des seize questions portent **un seul** point de qualification. Deux
+font exception, et la table le dit plutôt que de le masquer : la question 10
+n'en porte aucune, la question 14 en porte deux. Les questions 6 et 7 en
+partageaient une troisième jusqu'au 2 septembre 2026, faute d'axe réseaux
+cartes ; elles ont désormais chacune la leur — écart `C-1` de la revue de
+cohérence, `PSP-REGISTRE.md`.
 
 | Question | Point |
 |---|---|
@@ -124,7 +132,8 @@ question 10 n'en porte aucune, la question 14 en porte deux.
 | 3 | `MERCHANT_CATEGORY_CODE_CONFIRMED` |
 | 4 | `ACTIVITY_ACCEPTED` |
 | 5 | `PRODUCT_CATEGORIES_ACCEPTED` |
-| 6 · 7 | contribuent à `PRODUCT_CATEGORIES_ACCEPTED` — une catégorie sans réseau utilisable n'est pas vendable |
+| 6 | `VISA_ACCEPTANCE_CONFIRMED` |
+| 7 | `MASTERCARD_ACCEPTANCE_CONFIRMED` |
 | 8 | `MODEL_A_ACCEPTED` |
 | 9 | `MODEL_B_ACCEPTED` |
 | 10 | contribue au modèle retenu |
@@ -133,6 +142,7 @@ question 10 n'en porte aucune, la question 14 en porte deux.
 | 13 | `CHARGEBACK_RULES_STATED` |
 | 14 | `REFUND_RULES_STATED` et `SETTLEMENT_RULES_STATED` |
 | 15 | `PRODUCTION_CONDITIONS_STATED` |
+| 16 | `TERMINATION_CONDITIONS_STATED` |
 
 `PROVIDER_IDENTIFIED` ne se coche pas à la réception d'une réponse : il exige que
 le prestataire soit nommément engagé, ce qu'établit un contrat ou une décision de

@@ -7,7 +7,7 @@
  *
  * Il existe parce que le reste du code ne savait pas exprimer l'état réel du
  * dossier. Sans lui, « acquéreur inconnu » et « acquéreur approuvé » se
- * ressemblent : ce sont deux absences de `false`. Les quatorze points ci-dessous
+ * ressemblent : ce sont deux absences de `false`. Les dix-sept points ci-dessous
  * rendent la différence explicite, et le verdict par défaut est le refus.
  *
  * **Trois principes.**
@@ -91,7 +91,7 @@ export function isBindingSource(source: AnswerSource): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Les quatorze points
+// Les dix-sept points
 // ---------------------------------------------------------------------------
 
 /**
@@ -100,6 +100,24 @@ export function isBindingSource(source: AnswerSource): boolean {
  * Aucun point ne s'infère d'un autre. Un « oui » global qui ne les couvre pas
  * tous laisse les autres à `UNKNOWN` — c'est la seule lecture honnête d'une
  * réponse partielle.
+ *
+ * **Trois points ajoutés le 2 septembre 2026**, après une revue qui a trouvé
+ * qu'ils manquaient (écarts `C-1` et `C-2` de `docs/PSP-REGISTRE.md`) :
+ *
+ *  - `VISA_ACCEPTANCE_CONFIRMED` et `MASTERCARD_ACCEPTANCE_CONFIRMED`. Les deux
+ *    réseaux étaient jusque-là rangés sous `PRODUCT_CATEGORIES_ACCEPTED`, si
+ *    bien qu'un « oui » sur les catégories faisait passer ce point au vert sans
+ *    qu'un mot ait été dit des réseaux. Séparés, ils restent `UNKNOWN` tant que
+ *    personne ne les a confirmés nommément — et un refus de prestataire qui
+ *    *invoque* Visa ou Mastercard ne les renseigne pas davantage : citer un
+ *    tiers ne l'engage pas.
+ *  - `TERMINATION_CONDITIONS_STATED`. `PRODUCTION_CONDITIONS_STATED` porte
+ *    l'entrée en production ; la sortie — résiliation, gel, sort des fonds
+ *    restants et des impayés postérieurs — n'avait aucune case, donc ne pouvait
+ *    pas manquer visiblement.
+ *
+ * Ces trois ajouts ne peuvent que **bloquer davantage** : ils naissent
+ * `NOT_ASKED` pour tous les dossiers existants.
  */
 export const QUALIFICATION_POINTS = [
   "PROVIDER_IDENTIFIED",
@@ -108,6 +126,8 @@ export const QUALIFICATION_POINTS = [
   "MERCHANT_CATEGORY_CODE_CONFIRMED",
   "ACTIVITY_ACCEPTED",
   "PRODUCT_CATEGORIES_ACCEPTED",
+  "VISA_ACCEPTANCE_CONFIRMED",
+  "MASTERCARD_ACCEPTANCE_CONFIRMED",
   "MODEL_A_ACCEPTED",
   "MODEL_B_ACCEPTED",
   "COMPLIANCE_CONDITIONS_STATED",
@@ -116,6 +136,7 @@ export const QUALIFICATION_POINTS = [
   "REFUND_RULES_STATED",
   "SETTLEMENT_RULES_STATED",
   "PRODUCTION_CONDITIONS_STATED",
+  "TERMINATION_CONDITIONS_STATED",
 ] as const;
 
 export type QualificationPoint = (typeof QUALIFICATION_POINTS)[number];
@@ -127,6 +148,8 @@ export const QUALIFICATION_POINT_LABEL_FR: Record<QualificationPoint, string> = 
   MERCHANT_CATEGORY_CODE_CONFIRMED: "Code d'activité confirmé",
   ACTIVITY_ACCEPTED: "Activité acceptée",
   PRODUCT_CATEGORIES_ACCEPTED: "Catégories de produits acceptées",
+  VISA_ACCEPTANCE_CONFIRMED: "Acceptation Visa confirmée",
+  MASTERCARD_ACCEPTANCE_CONFIRMED: "Acceptation Mastercard confirmée",
   MODEL_A_ACCEPTED: "Modèle A accepté ou refusé",
   MODEL_B_ACCEPTED: "Modèle B accepté ou refusé",
   COMPLIANCE_CONDITIONS_STATED: "Conditions de conformité énoncées",
@@ -135,6 +158,7 @@ export const QUALIFICATION_POINT_LABEL_FR: Record<QualificationPoint, string> = 
   REFUND_RULES_STATED: "Règles de restitution énoncées",
   SETTLEMENT_RULES_STATED: "Règles de reversement énoncées",
   PRODUCTION_CONDITIONS_STATED: "Conditions de passage en production énoncées",
+  TERMINATION_CONDITIONS_STATED: "Conditions de résiliation et sort des fonds énoncées",
 };
 
 /**
@@ -148,6 +172,25 @@ export const ACQUIRING_POINTS: readonly QualificationPoint[] = [
   "ACQUIRING_ENTITY_IDENTIFIED",
   "ACQUIRING_COUNTRY_IDENTIFIED",
   "MERCHANT_CATEGORY_CODE_CONFIRMED",
+];
+
+/**
+ * Points qui portent sur les réseaux cartes, et sur personne d'autre.
+ *
+ * Séparés des points prestataire **et** des points acquéreur, parce que les
+ * trois niveaux décident indépendamment. Un prestataire peut accepter un
+ * dossier que son acquéreur refuse ; un acquéreur peut souscrire une activité
+ * qu'un réseau assortit de conditions. Aucune de ces trois décisions ne
+ * s'infère des deux autres.
+ *
+ * Ce qui, en pratique, interdit trois phrases : « Stripe accepte donc Visa
+ * accepte », « Stripe accepte donc Mastercard accepte », et « ce prestataire a
+ * cité Visa pour nous refuser donc Visa refuse le CBD ». Aucune n'est étayée
+ * par une pièce émanant d'un réseau.
+ */
+export const CARD_NETWORK_POINTS: readonly QualificationPoint[] = [
+  "VISA_ACCEPTANCE_CONFIRMED",
+  "MASTERCARD_ACCEPTANCE_CONFIRMED",
 ];
 
 // ---------------------------------------------------------------------------
@@ -312,4 +355,17 @@ export function acquiringStillUnknown(qualification: ProviderQualification): boo
   const assessment = assessQualification(qualification);
   if (assessment.qualified) return false;
   return assessment.blocking.some((item) => ACQUIRING_POINTS.includes(item.point));
+}
+
+/**
+ * Vrai si l'acceptation Visa ou Mastercard reste à confirmer.
+ *
+ * Distinct de `acquiringStillUnknown` à dessein : un acquéreur nommé qui a
+ * souscrit l'activité ne dit toujours rien des conditions que Visa ou
+ * Mastercard peuvent imposer à cette catégorie de commerce.
+ */
+export function cardNetworksStillUnknown(qualification: ProviderQualification): boolean {
+  const assessment = assessQualification(qualification);
+  if (assessment.qualified) return false;
+  return assessment.blocking.some((item) => CARD_NETWORK_POINTS.includes(item.point));
 }

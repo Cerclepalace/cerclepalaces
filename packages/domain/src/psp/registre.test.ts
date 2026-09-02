@@ -1,5 +1,5 @@
 /**
- * Les treize garanties du dossier PSP, vérifiées sur les dossiers réels.
+ * Les garanties du dossier PSP, vérifiées sur les dossiers réels.
  *
  * Ces tests ne mesurent pas la qualité d'un prestataire. Ils vérifient qu'aucun
  * chemin ne permet à une absence, une capacité ou une parole de devenir une
@@ -52,7 +52,7 @@ describe("aucun dossier réel n'est qualifié", () => {
     }
   });
 
-  it("un dossier vide bloque sur les quatorze points", () => {
+  it("un dossier vide bloque sur les dix-sept points", () => {
     const verdict = assessDossier(emptyDossier("Inconnu"));
     if (verdict.qualified) throw new Error("ne devrait pas qualifier");
     expect(verdict.blocking.every((b) => b.verdict === "NOT_ASKED")).toBe(true);

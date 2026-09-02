@@ -11,11 +11,13 @@ import { describe, expect, it } from "vitest";
 import {
   ACQUIRING_POINTS,
   ANSWER_SOURCES,
+  CARD_NETWORK_POINTS,
   BINDING_SOURCES,
   ProviderNotQualifiedError,
   QUALIFICATION_POINTS,
   acquiringStillUnknown,
   assertProviderQualified,
+  cardNetworksStillUnknown,
   assessQualification,
   emptyQualification,
   isBindingSource,
@@ -53,7 +55,7 @@ const dossierComplet = (
 });
 
 describe("un dossier vide n'est pas en attente, il est refusé", () => {
-  it("bloque sur les quatorze points", () => {
+  it("bloque sur les dix-sept points", () => {
     const verdict = assessQualification(emptyQualification("Prestataire de test"));
     expect(verdict.qualified).toBe(false);
     if (verdict.qualified) return;
@@ -118,8 +120,57 @@ describe("ce qui ne qualifie jamais", () => {
   });
 });
 
+describe("les réseaux cartes ne se déduisent de rien", () => {
+  it("une acceptation prestataire ne confirme ni Visa ni Mastercard", () => {
+    // « Stripe accepte donc Visa accepte » : la phrase interdite, écrite ici
+    // comme un test pour qu'elle ne puisse pas devenir vraie par accident.
+    const qualification: ProviderQualification = {
+      providerName: "Prestataire de test",
+      responses: [
+        réponse("ACTIVITY_ACCEPTED"),
+        réponse("PRODUCT_CATEGORIES_ACCEPTED"),
+      ],
+    };
+    const verdict = assessQualification(qualification);
+    expect(verdict.qualified).toBe(false);
+    if (verdict.qualified) return;
+    for (const point of CARD_NETWORK_POINTS) {
+      expect(
+        verdict.blocking.find((b) => b.point === point)?.verdict,
+        point,
+      ).toBe("NOT_ASKED");
+    }
+    expect(cardNetworksStillUnknown(qualification)).toBe(true);
+  });
+
+  it("un refus prestataire qui invoque Visa ne renseigne pas Visa", () => {
+    // Citer un tiers ne l'engage pas : le refus porte sur son émetteur.
+    const qualification: ProviderQualification = {
+      providerName: "Prestataire de test",
+      responses: [réponse("ACTIVITY_ACCEPTED", { answer: "NO" })],
+    };
+    expect(cardNetworksStillUnknown(qualification)).toBe(true);
+    expect(acquiringStillUnknown(qualification)).toBe(true);
+  });
+
+  it("un dossier complet ne laisse plus les réseaux inconnus", () => {
+    expect(cardNetworksStillUnknown(dossierComplet())).toBe(false);
+  });
+
+  it("Visa confirmé ne confirme pas Mastercard", () => {
+    const verdict = assessQualification(
+      dossierComplet({ answer: "UNKNOWN" }, "MASTERCARD_ACCEPTANCE_CONFIRMED"),
+    );
+    expect(verdict.qualified).toBe(false);
+    if (verdict.qualified) return;
+    expect(verdict.blocking).toEqual([
+      { point: "MASTERCARD_ACCEPTANCE_CONFIRMED", verdict: "NOT_ASKED" },
+    ]);
+  });
+});
+
 describe("ce qui qualifie", () => {
-  it("quatorze réponses écrites, datées et référencées", () => {
+  it("dix-sept réponses écrites, datées et référencées", () => {
     expect(assessQualification(dossierComplet())).toEqual({
       qualified: true,
       providerName: "Prestataire de test",
@@ -211,8 +262,26 @@ describe("intégrité du modèle", () => {
     ]);
   });
 
-  it("nomme les quatorze points sans doublon", () => {
-    expect(new Set(QUALIFICATION_POINTS).size).toBe(14);
+  it("nomme les dix-sept points sans doublon", () => {
+    expect(new Set(QUALIFICATION_POINTS).size).toBe(17);
+  });
+
+  it("sépare les réseaux cartes du prestataire et de l'acquéreur", () => {
+    // Trois niveaux qui décident indépendamment. Les fondre ferait qu'une
+    // acceptation prestataire vaudrait acceptation Visa — l'inférence que ce
+    // module existe pour interdire.
+    expect(CARD_NETWORK_POINTS).toEqual([
+      "VISA_ACCEPTANCE_CONFIRMED",
+      "MASTERCARD_ACCEPTANCE_CONFIRMED",
+    ]);
+    for (const point of CARD_NETWORK_POINTS) {
+      expect(ACQUIRING_POINTS, point).not.toContain(point);
+    }
+  });
+
+  it("porte une case pour la sortie, pas seulement pour l'entrée", () => {
+    expect(QUALIFICATION_POINTS).toContain("TERMINATION_CONDITIONS_STATED");
+    expect(QUALIFICATION_POINTS).toContain("PRODUCTION_CONDITIONS_STATED");
   });
 
   it("couvre chaque réponse possible", () => {
