@@ -38,6 +38,7 @@ const ADAPTERS = [
   // requêtes doit être nommée et justifiée plus bas, faute de quoi une future
   // méthode qui lirait une commande ou une livraison passerait inaperçue.
   join(here, "drivers", "prisma-repository.ts"),
+  join(here, "catalog", "prisma-repository.ts"),
 ];
 
 /**
@@ -104,6 +105,15 @@ const ALLOWED_WITHOUT_TENANT: ReadonlyMap<string, string> = new Map([
   [
     "setAvailability:driverAvailabilityLog.create",
     "Ouvre une période de disponibilité pour un driver, ressource réseau sans rattachement marchand.",
+  ],
+  // --- Candidat à la mise en vente ---
+  [
+    "findCandidate:merchant.findFirst",
+    "Le shop lui-même : sur cette table, la clé primaire est le tenant. Le filtre est `id: scope.merchantId`, que le détecteur ne peut pas reconnaître puisqu'il cherche une colonne `merchantId` — laquelle n'existe pas sur Merchant.",
+  ],
+  [
+    "findCandidate:product.findFirst",
+    "Un produit peut relever d'un catalogue partagé et n'a donc pas de merchantId propre : la portée passe par la relation inventory, filtrée sur le scope dans la même requête.",
   ],
 ]);
 
