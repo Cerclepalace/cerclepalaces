@@ -31,5 +31,7 @@ export * from "./delivery/replay.js";
 export * from "./qr/events.js";
 export * from "./pricing/breakdown.js";
 
+export * from "./psp/qualification.js";
+
 export * from "./ports/payment-provider.js";
 export * from "./ports/delivery-provider.js";

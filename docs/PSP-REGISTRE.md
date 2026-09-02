@@ -216,7 +216,38 @@ Ce qui ne doit pas être écrit, parce que ce serait faux :
 - « Le CBD est interdit. »
 - « Trois refus prouvent que le projet est impossible. »
 
-## Conséquence sur le code
+## Ce que le code sait maintenant représenter
+
+Le dépôt ne pouvait pas exprimer l'état de ce dossier. « Acquéreur inconnu » et
+« acquéreur approuvé » s'y ressemblaient : deux absences de `false`.
+
+`packages/domain/src/psp/qualification.ts` porte désormais les quatorze points
+ci-dessus comme un modèle typé, avec cinq réponses possibles — `YES`, `NO`,
+`YES_WITH_CONDITIONS`, `NO_ANSWER`, `UNKNOWN` — et une liste fermée de sources.
+Quatre d'entre elles engagent : e-mail écrit, contrat signé, courrier officiel,
+décision du portail marchand. Les quatre autres — appel commercial, documentation
+technique, accès bac à sable, page marketing — ne qualifient **jamais**, et un
+test le vérifie pour chacune.
+
+Trois propriétés, toutes vérifiées par mutation :
+
+- **Le verdict par défaut est le refus.** Un dossier vide n'est pas « en
+  attente », il est non qualifié sur les quatorze points.
+- **Un seul point manquant bloque.** Testé sur chacun des quatorze séparément.
+- **Le prestataire n'est pas l'acquéreur.** `acquiringStillUnknown()` dit
+  précisément « ils ont répondu, personne ne sait qui souscrit » — la phrase la
+  plus fréquente de ce dossier, qu'un statut unique rendrait indicible.
+
+Une garde, `assertProviderQualified()`, existe sans être appelée : rien
+n'encaisse. Elle est écrite maintenant pour que le jour où un adaptateur réel
+sera branché, l'oublier soit une omission visible plutôt qu'un chemin par défaut.
+
+Un contrat de port, `payment-provider.contract.test.ts`, décrit ce que tout
+adaptateur devra satisfaire — sans citer un seul nom de prestataire, et un test
+vérifie qu'il n'en cite aucun. Une suite écrite après coup pour un fournisseur
+donné ne testerait plus rien.
+
+## Conséquence sur le reste du code
 
 Aucune. `O-001` reste **CONDITIONAL / NO-GO**. Le périmètre transactionnel est
 gelé et la garde anti-monétaire le vérifie à chaque exécution des tests. Aucun

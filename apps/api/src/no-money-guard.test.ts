@@ -120,19 +120,34 @@ const EXCEPTIONS: ReadonlyMap<string, Exception> = new Map([
     },
   ],
   [
-    "packages/domain/src/index.ts",
-    {
-      jetons: ["payout", "payment"],
-      raison:
-        "Réexports des deux modules déjà exceptés ci-dessus. Le fichier ne contient aucune logique propre, seulement des lignes `export * from`.",
-    },
-  ],
-  [
     "apps/api/src/http/contract.ts",
     {
       jetons: ["PaymentNotConfiguredError"],
       raison:
         "Nom de l'erreur que lève le fournisseur factice quand on tente une opération. La citer permet de la mapper sur un code HTTP ; elle marque le refus, pas une capacité.",
+    },
+  ],
+  [
+    "packages/domain/src/psp/qualification.ts",
+    {
+      jetons: [
+        "ACQUIRING_POINTS",
+        "ACQUIRING_ENTITY_IDENTIFIED",
+        "ACQUIRING_COUNTRY_IDENTIFIED",
+        "CHARGEBACK_RULES_STATED",
+        "REFUND_RULES_STATED",
+        "acquiringStillUnknown",
+      ],
+      raison:
+        "Noms des points d'un questionnaire de qualification. Ce sont des questions posées à un prestataire et à son acquéreur, pas des mécanismes : rien ici n'encaisse, ne rembourse, ne conteste ni ne reverse. Le module rend un verdict sur l'état d'un dossier, et son verdict par défaut est le refus.",
+    },
+  ],
+  [
+    "packages/domain/src/index.ts",
+    {
+      jetons: ["payout", "payment", "psp"],
+      raison:
+        "Réexports des modules déjà exceptés ci-dessus, plus celui de la qualification prestataire. Le fichier ne contient aucune logique propre, seulement des lignes `export * from`.",
     },
   ],
   [
