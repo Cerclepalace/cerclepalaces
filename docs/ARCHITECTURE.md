@@ -131,3 +131,5 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 - `P2-CATALOGUE-CONFORMITE.md` — politique de catalogue, preuves juridiques, portail de mise en vente
 - `RGPD.md` — données personnelles collectées et leur usage
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
+- `PSP-REGISTRE.md` — qualification des prestataires de paiement et de l'acquiring
+- `PSP-STRIPE-RELANCE.md` — message de réouverture du dossier Stripe

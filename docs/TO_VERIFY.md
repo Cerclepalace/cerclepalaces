@@ -20,7 +20,7 @@ mise en service réelle qui attend.
 | 06 | TVA et facturation selon le modèle retenu | Lancement | Pas de modèle `Invoice` tant que 05 n'est pas tranché |
 | 07 | Responsabilité produit et politique de remboursement | Lancement | `requiresRefundDecision()` signale le cas, ne le traite pas |
 | 08 | CGV / CGU adaptées au modèle retenu | Lancement | — |
-| 09 | Choix du PSP : compatibilité CBD, split payment, KYC/KYB, commissions | Développement paiement | Aucune dépendance à un fournisseur : `PaymentProvider` est une interface, son implémentation refuse toute opération |
+| 09 | Choix du PSP **et de l'acquéreur** : compatibilité CBD, modèle marketplace, MCC, réseaux cartes | Développement paiement | Aucune dépendance à un fournisseur : `PaymentProvider` est une interface, son implémentation refuse toute opération. État détaillé dans `PSP-REGISTRE.md` |
 | 10 | Seuils réglementaires de conformité produit (THC/CBD) | Mise en vente | Taux stockés tels que déclarés, seuils non codés |
 | 11 | Vérification d'âge à la commande ou à la livraison | Lancement | `ProofOfDelivery` accepte PHOTO/SIGNATURE/CODE ; `DEFAULT_PROOF_POLICY` n'exige rien tant que la règle n'est pas connue |
 | 12 | Durées de conservation RGPD et base légale par donnée | Lancement | Voir `RGPD.md` |
