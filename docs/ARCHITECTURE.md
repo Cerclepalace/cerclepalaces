@@ -133,3 +133,4 @@ l'historique complet d'une commande et sert de preuve en cas de litige.
 - `PROPRIETE-INTELLECTUELLE.md` — ce qui protège réellement le projet
 - `PSP-REGISTRE.md` — qualification des prestataires de paiement et de l'acquiring
 - `PSP-STRIPE-RELANCE.md` — message de réouverture du dossier Stripe
+- `PSP-DEMANDE-TYPE.md` — demande de pré-approbation réutilisable, neutre vis-à-vis du fournisseur
