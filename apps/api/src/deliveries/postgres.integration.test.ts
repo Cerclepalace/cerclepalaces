@@ -720,4 +720,70 @@ describe.skipIf(DATABASE_URL === undefined)("adaptateurs Prisma sur PostgreSQL r
       ).rejects.toThrow();
     });
   });
+  describe("le schéma porte ce que le domaine exige", () => {
+    it("distingue le delta-9 du THC total, et exige un émetteur", async () => {
+      // Le domaine a gagné ces champs avant la base ; sans eux, aucun
+      // adaptateur ne pourrait remplir un dossier de conformité.
+      const colonnes = await prisma.$queryRaw<{ column_name: string }[]>`
+        select column_name from information_schema.columns
+         where table_name = 'ProductCompliance'
+      `;
+      const noms = colonnes.map((c) => c.column_name);
+      expect(noms).toEqual(
+        expect.arrayContaining(["delta9ThcPercent", "totalThcPercent", "laboratory", "issuedAt"]),
+      );
+      // L'ancienne mesure unique a disparu : deux sources pour un même chiffre
+      // finissent par diverger.
+      expect(noms).not.toContain("thcContent");
+    });
+
+    it("n'a plus qu'une taxonomie, et elle est fermée", async () => {
+      const table = await prisma.$queryRaw<{ n: bigint }[]>`
+        select count(*)::bigint as n from information_schema.tables
+         where table_name = 'ProductCategory'
+      `;
+      expect(Number(table[0]?.n ?? 0)).toBe(0);
+
+      const valeurs = await prisma.$queryRaw<{ enumlabel: string }[]>`
+        select e.enumlabel from pg_enum e
+          join pg_type t on t.oid = e.enumtypid
+         where t.typname = 'ProductCategory'
+         order by e.enumsortorder
+      `;
+      expect(valeurs.map((v) => v.enumlabel)).toEqual([
+        "FLOWER", "RESIN", "OIL_NON_FOOD", "COSMETIC", "FOOD",
+        "SUPPLEMENT", "VAPE", "ACCESSORY", "OTHER", "PROHIBITED_DERIVATIVE",
+      ]);
+    });
+
+    it("refuse une catégorie hors taxonomie, jusqu'en base", async () => {
+      await prisma.product.create({ data: { id: id("prod_ok"), name: "Test", category: "FLOWER" } });
+      await expect(
+        prisma.$executeRawUnsafe(
+          `update "Product" set "category" = 'CBD' where "id" = $1`,
+          id("prod_ok"),
+        ),
+      ).rejects.toThrow();
+      await prisma.product.delete({ where: { id: id("prod_ok") } });
+    });
+
+    it("porte les champs critiques du KYB", async () => {
+      const colonnes = await prisma.$queryRaw<{ column_name: string }[]>`
+        select column_name from information_schema.columns where table_name = 'Merchant'
+      `;
+      expect(colonnes.map((c) => c.column_name)).toEqual(
+        expect.arrayContaining(["legalForm", "beneficialOwnerRef", "bankAccountRef"]),
+      );
+    });
+
+    it("connaît les six états vendeur", async () => {
+      const valeurs = await prisma.$queryRaw<{ enumlabel: string }[]>`
+        select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid
+         where t.typname = 'MerchantStatus'
+      `;
+      expect(valeurs.map((v) => v.enumlabel).sort()).toEqual([
+        "ACTIVE", "APPROVED", "CLOSED", "KYB_REVIEW", "PENDING_VALIDATION", "SUSPENDED",
+      ]);
+    });
+  });
 });

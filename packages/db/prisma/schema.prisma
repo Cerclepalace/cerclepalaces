@@ -152,6 +152,14 @@ model Merchant {
   // restent à confirmer (docs/TO_VERIFY.md, décision 09).
   registrationNumber String?
   vatNumber          String?
+  // Champs critiques du KYB : leur modification renvoie le shop à l'examen.
+  // Voir CRITICAL_KYB_FIELDS dans packages/domain/src/merchant/status.ts.
+  legalForm          String?
+  // Référence opaque du bénéficiaire effectif, et empreinte du compte bancaire.
+  // Détecter un changement n'exige pas de connaître la valeur : rien n'est
+  // stocké en clair ici.
+  beneficialOwnerRef String?
+  bankAccountRef     String?
   status       MerchantStatus @default(PENDING_VALIDATION)
   createdAt    DateTime       @default(now())
   validatedAt  DateTime?
@@ -234,45 +242,47 @@ model MerchantStaff {
 // Catalogue, stock et conformité
 // ---------------------------------------------------------------------------
 
-model ProductCategory {
-  id       String  @id @default(cuid())
-  slug     String  @unique
-  name     String
-  parentId String?
-
-  parent   ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children ProductCategory[] @relation("CategoryTree")
-  products Product[]
+// Taxonomie de conformité, fermée. Elle remplace la table `ProductCategory`,
+// qui était un arbre à slugs libres : deux systèmes de catégories concurrents,
+// dont l'un ouvert, redonnaient à un produit une porte que la taxonomie fermée
+// venait de fermer. Voir packages/domain/src/catalog/policy.ts.
+//
+// Il n'existe pas de catégorie « CBD » : un produit au CBD peut être une fleur,
+// une huile, un aliment ou un cosmétique, et ces natures ne relèvent pas des
+// mêmes règles.
+enum ProductCategory {
+  FLOWER
+  RESIN
+  OIL_NON_FOOD
+  COSMETIC
+  FOOD
+  SUPPLEMENT
+  VAPE
+  ACCESSORY
+  // Non classé. Attend un classement humain ; ne s'ouvre jamais.
+  OTHER
+  // Fermée par construction. Aucune politique ne peut l'ouvrir.
+  PROHIBITED_DERIVATIVE
 }
 
-// `Product` est une **référence de catalogue**, pas une offre commerciale.
-//
-// `merchantId` reste volontairement optionnel :
-//   - null  → produit du référentiel partagé, vérifié une fois par la plateforme
-//             et réutilisable par plusieurs shops ;
-//   - défini → produit propre à un shop, qui n'apparaît pas chez les autres.
-//
-// Ce n'est donc pas une brèche de multi-tenancy : rien de commercialement
-// sensible ne vit ici. Le prix, le stock et la mise en vente sont dans
-// `Inventory`, qui est tenanté. Un produit visible ne veut pas dire vendable :
-// seul `isOrderable()` en décide.
 model Product {
   id          String   @id @default(cuid())
   merchantId  String?
-  categoryId  String?
+  // Nullable tant que le produit n'est pas classé. Le portail de mise en vente
+  // refuse un produit sans catégorie : l'absence bloque, elle n'autorise pas.
+  category    ProductCategory?
   name        String
   description String?
   imageUrl    String?
   createdAt   DateTime @default(now())
 
   merchant   Merchant?          @relation(fields: [merchantId], references: [id])
-  category   ProductCategory?   @relation(fields: [categoryId], references: [id])
   compliance ProductCompliance?
   inventory  Inventory[]
   orderItems OrderItem[]
 
   @@index([merchantId])
-  @@index([categoryId])
+  @@index([category])
 }
 
 enum ComplianceStatus {
@@ -290,11 +300,25 @@ model ProductCompliance {
   id          String           @id @default(cuid())
   productId   String           @unique
   status      ComplianceStatus @default(PENDING_REVIEW)
-  thcContent  Decimal?         @db.Decimal(6, 4)
+
+  // Deux mesures de THC qui ne se substituent pas. `delta9ThcPercent` est celle
+  // sur laquelle un plafond peut porter ; `totalThcPercent` est informative et
+  // agrège des formes qui n'ont pas le même statut. Les confondre dans un sens
+  // refuserait des produits conformes, dans l'autre en laisserait passer.
+  delta9ThcPercent Decimal?    @db.Decimal(6, 4)
+  totalThcPercent  Decimal?    @db.Decimal(6, 4)
   cbdContent  Decimal?         @db.Decimal(6, 4)
+
   composition String?
   supplier    String?
   batchNumber String?
+  // Laboratoire émetteur du certificat. Sans lui, il n'y a personne à
+  // recontacter en cas de doute, ni personne à opposer.
+  laboratory  String?
+  // Date d'émission de l'analyse, distincte de la date de vérification par la
+  // plateforme : une analyse ne peut pas avoir été faite demain.
+  issuedAt    DateTime?
+
   verifiedAt  DateTime?
   verifiedBy  String?
   expiresAt   DateTime?
