@@ -32,6 +32,8 @@ export * from "./qr/events.js";
 export * from "./pricing/breakdown.js";
 
 export * from "./psp/qualification.js";
+export * from "./psp/dossier.js";
+export * from "./psp/registre.js";
 
 export * from "./ports/payment-provider.js";
 export * from "./ports/delivery-provider.js";

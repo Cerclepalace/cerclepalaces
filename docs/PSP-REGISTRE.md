@@ -44,6 +44,11 @@ Valeurs de statut : `UNKNOWN` · `IN_PROGRESS` · `APPROVED` · `REJECTED` ·
 
 ## Registre au 2 septembre 2026
 
+Ce tableau est désormais **doublé par un fichier typé**,
+`packages/domain/src/psp/registre.ts`, confronté à des tests. Un tableau tenu à
+la main dérive ; un registre qui affirmerait qu'un prestataire est qualifié
+alors qu'il ne l'est pas fait échouer la suite.
+
 | Prestataire | PSP_STATUS | ACQUIRER | MCC | RÉSEAUX | COMPLIANCE | PREUVE |
 |---|---|---|---|---|---|---|
 | Nuvei | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `NOT_OBTAINED` | `VERIFIED` |
@@ -216,6 +221,17 @@ Ce qui ne doit pas être écrit, parce que ce serait faux :
 - « Le CBD est interdit. »
 - « Trois refus prouvent que le projet est impossible. »
 
+## Ce que chaque preuve établit, et ce qu'elle n'établit pas
+
+| Prestataire | La preuve établit | Elle n'établit pas | Action suivante |
+|---|---|---|---|
+| Nuvei | Refus de l'activité sur le dossier soumis, 26/08/2026 | Acquéreur, code d'activité, réseaux, modèles A et B, position sur le CBD en général | Consigner la référence d'archive. Éventuellement demander si le motif vise la localisation, l'activité, ou les deux |
+| RoxPay | Refus écrit reçu | Tout le reste ; et la référence d'archive n'est pas consignée | Consigner émetteur, date, objet |
+| Stancer | Refus écrit reçu | Idem RoxPay | Idem RoxPay |
+| Stripe | L'état du fil : mise en attente puis clôture administrative | **Aucune décision.** Ni refus, ni acceptation, sur aucun point | Envoyer la relance, dans le fil existant |
+| Lemonway · emerchantpay · PayKings · BridgePay | Rien | Rien | Ouvrir ou verser au dossier une démarche datée |
+| MangoPay | Un écart stratégique décidé par le projet | Un refus. Ce n'en est pas un | Aucune |
+
 ## Ce que le code sait maintenant représenter
 
 Le dépôt ne pouvait pas exprimer l'état de ce dossier. « Acquéreur inconnu » et
@@ -241,6 +257,24 @@ Trois propriétés, toutes vérifiées par mutation :
 Une garde, `assertProviderQualified()`, existe sans être appelée : rien
 n'encaisse. Elle est écrite maintenant pour que le jour où un adaptateur réel
 sera branché, l'oublier soit une omission visible plutôt qu'un chemin par défaut.
+
+Les **neuf dossiers réels** sont transcrits dans `psp/registre.ts`, avec une
+règle de saisie sans exception : une case ne reçoit une valeur que si une preuve
+la porte. Nuvei porte un seul point renseigné — le refus d'activité — parce que
+son e-mail ne dit rien d'autre ; en déduire que l'acquéreur ou les modèles sont
+refusés serait exactement l'erreur que ce registre existe pour empêcher. Stripe
+n'en porte aucun, parce qu'aucune décision n'a été rendue.
+
+Un dossier sépare trois choses qui ne se mélangent jamais : ce qu'un prestataire
+**sait faire**, ce qu'il a **accepté**, et ce qu'on lui a **demandé**. La
+séparation est structurelle — la fonction de jugement ne reçoit jamais les
+capacités, donc aucune ne peut faire pencher un verdict. Une mutation qui ferait
+qualifier un prestataire sur ses seules capacités casse cinq tests.
+
+Les démarches distinguent **préparé** et **envoyé**. Un message rédigé, relu,
+prêt à partir ressemble à un dossier en cours ; tant que la date d'envoi et sa
+preuve manquent, personne n'attend de réponse. Aucune démarche du registre n'est
+enregistrée comme envoyée : rien n'a été expédié depuis cet environnement.
 
 Un contrat de port, `payment-provider.contract.test.ts`, décrit ce que tout
 adaptateur devra satisfaire — sans citer un seul nom de prestataire, et un test

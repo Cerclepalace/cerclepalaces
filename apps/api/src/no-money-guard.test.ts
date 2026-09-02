@@ -143,6 +143,14 @@ const EXCEPTIONS: ReadonlyMap<string, Exception> = new Map([
     },
   ],
   [
+    "packages/domain/src/psp/registre.ts",
+    {
+      jetons: ["PSP"],
+      raison:
+        "Le sigle apparaît dans une phrase de commentaire renvoyant au registre documentaire du dossier prestataire. Ce fichier ne contient que des données de qualification — des questions posées et des réponses reçues — et aucun mécanisme de paiement.",
+    },
+  ],
+  [
     "packages/domain/src/index.ts",
     {
       jetons: ["payout", "payment", "psp"],
