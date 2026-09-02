@@ -156,13 +156,26 @@ describe("traçabilité des preuves", () => {
     expect(assessQualification(fictif.qualification).qualified).toBe(false);
   });
 
-  it("RoxPay et Stancer portent un refus dont l'archive reste à consigner", () => {
+  it("RoxPay et Stancer portent un refus daté dont l'archive reste à consigner", () => {
     for (const dossier of [ROXPAY, STANCER]) {
       const refus = dossier.qualification.responses[0];
       expect(refus?.answer, dossier.providerName).toBe("NO");
+      expect(refus?.answeredAt?.toISOString(), dossier.providerName).toBe("2026-08-21T00:00:00.000Z");
       // Un refus bloque qu'il soit archivé ou non ; la référence manquante est
       // un problème de preuve opposable, pas de verdict.
       expect(refus?.reference, dossier.providerName).toBeNull();
+    }
+  });
+
+  it("n'a rien déduit du motif invoqué par RoxPay et Stancer", () => {
+    // Les deux refus citent des réseaux cartes, des banques acquéreuses et des
+    // régulateurs. Citer un tiers ne l'engage pas : le seul point renseigné
+    // reste l'acceptation de l'activité par le prestataire lui-même.
+    for (const dossier of [ROXPAY, STANCER]) {
+      expect(dossier.qualification.responses.map((r) => r.point), dossier.providerName).toEqual([
+        "ACTIVITY_ACCEPTED",
+      ]);
+      expect(acquiringStillUnknown(dossier.qualification), dossier.providerName).toBe(true);
     }
   });
 });

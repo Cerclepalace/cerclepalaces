@@ -61,7 +61,8 @@ alors qu'il ne l'est pas fait échouer la suite.
 | BridgePay | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNVERIFIED` ³ |
 | MangoPay | `EXCLUDED_AT_THIS_STAGE` | — | — | — | — | Décision projet ⁴ |
 
-¹ Refus écrit reçu, **mais la référence d'archive n'est pas encore consignée**.
+¹ Refus écrit reçu le **21/08/2026**, **mais la référence d'archive n'est pas
+encore consignée**.
 Passe à `VERIFIED` dès que l'e-mail est archivé avec expéditeur, date et objet
 identifiables. Tant que la trace n'est pas retrouvable, le niveau reste
 `CONVERGENT` — le fait est tenu pour vrai, il n'est pas encore opposable.
@@ -118,6 +119,36 @@ compter parmi les refus.
 - **ACTION** — rouvrir dans le même fil, pour conserver l'historique, et demander
   explicitement un transfert vers Risk / Compliance / Underwriting. Message prêt,
   voir `PSP-STRIPE-RELANCE.md`.
+
+### RoxPay et Stancer — refus écrits du 21 août 2026
+
+- **SOURCE** — e-mails RoxPay et Stancer du 21/08/2026.
+- **FAIT** — refus de l'activité présentée. Les deux invoquent des restrictions
+  de **réseaux cartes**, de **banques acquéreuses** et de **régulateurs**, et
+  précisent l'un comme l'autre que leur refus **ne met pas en cause la légalité
+  de l'activité**.
+- **STATUT** — `PSP_STATUS = REJECTED`, date 2026-08-21. Tous les autres axes
+  restent `UNKNOWN`.
+- **PREUVE** — `CONVERGENT`. La date et le contenu sont établis ; l'émetteur
+  nommé et l'archive retrouvable manquent. Le refus est tenu pour vrai, il n'est
+  pas encore opposable.
+- **CE QUE CE MOTIF NE DIT PAS, ET C'EST LE POINT DÉLICAT DE CES DEUX DOSSIERS.**
+  Un prestataire qui explique son refus en citant Visa, Mastercard, un acquéreur
+  ou un régulateur ne parle **que de sa propre chaîne d'acceptation**. Ce n'est
+  ni une décision de Visa, ni une décision de Mastercard, ni une décision d'un
+  acquéreur nommé — aucun de ces tiers n'est identifié, aucun n'a écrit. Reporter
+  ce motif sur les axes `CARD_NETWORK_STATUS` ou `ACQUIRER_STATUS` produirait
+  exactement la phrase que ce registre interdit : « Visa et Mastercard refusent
+  le CBD. » Elle reste fausse : elle n'est étayée par aucune pièce.
+- **CE QUE CE MOTIF AJOUTE, EN REVANCHE** — deux prestataires indépendants
+  situent le blocage **en amont d'eux-mêmes**. C'est cohérent avec le constat
+  sectoriel déjà noté `CONVERGENT` plus bas : le goulot est l'acquéreur, pas la
+  passerelle. Cela renforce la question centrale ; cela ne la résout pas.
+- **ACTION** — consigner émetteur et objet pour passer à `VERIFIED`. Demander à
+  RoxPay, en réponse dans le même fil, si le refus porte sur les deux modèles ou
+  sur un seul : un refus du modèle A n'implique pas un refus du modèle B, et la
+  distinction change les candidats suivants. **`HUMAN DECISION REQUIRED`** sur
+  l'envoi ; le message ne peut pas partir depuis cet environnement.
 
 ### PayKings et BridgePay — rien à classer
 
@@ -226,8 +257,8 @@ Ce qui ne doit pas être écrit, parce que ce serait faux :
 | Prestataire | La preuve établit | Elle n'établit pas | Action suivante |
 |---|---|---|---|
 | Nuvei | Refus de l'activité sur le dossier soumis, 26/08/2026 | Acquéreur, code d'activité, réseaux, modèles A et B, position sur le CBD en général | Consigner la référence d'archive. Éventuellement demander si le motif vise la localisation, l'activité, ou les deux |
-| RoxPay | Refus écrit reçu | Tout le reste ; et la référence d'archive n'est pas consignée | Consigner émetteur, date, objet |
-| Stancer | Refus écrit reçu | Idem RoxPay | Idem RoxPay |
+| RoxPay | Refus écrit de l'activité, 21/08/2026 | Tout le reste — et notamment rien sur Visa, Mastercard, un acquéreur nommé ou un régulateur, bien que le motif les cite | Consigner émetteur et objet |
+| Stancer | Refus écrit de l'activité, 21/08/2026 | Idem RoxPay | Idem RoxPay |
 | Stripe | L'état du fil : mise en attente puis clôture administrative | **Aucune décision.** Ni refus, ni acceptation, sur aucun point | Envoyer la relance, dans le fil existant |
 | Lemonway · emerchantpay · PayKings · BridgePay | Rien | Rien | Ouvrir ou verser au dossier une démarche datée |
 | MangoPay | Un écart stratégique décidé par le projet | Un refus. Ce n'en est pas un | Aucune |
@@ -280,6 +311,107 @@ Un contrat de port, `payment-provider.contract.test.ts`, décrit ce que tout
 adaptateur devra satisfaire — sans citer un seul nom de prestataire, et un test
 vérifie qu'il n'en cite aucun. Une suite écrite après coup pour un fournisseur
 donné ne testerait plus rien.
+
+## Revue de cohérence — 2 septembre 2026
+
+Revue en lecture seule du registre contre O-001 et les gates. Elle ne change
+aucun statut ; elle dit où le dossier se contredit lui-même. Sept écarts, dont
+quatre portent sur ce que le code **ne sait pas représenter** — et un trou de
+représentation n'est pas neutre : il pousse à ranger un fait dans la case la
+plus proche, ce qui est la définition même de l'inférence que ce registre
+interdit.
+
+### C-1 · `CARD_NETWORK_STATUS` est un axe obligatoire qu'aucun code ne porte
+
+`ACTION REQUISE.` Les six axes ci-dessus imposent Visa et Mastercard
+**séparément**. Les quatorze points de `qualification.ts` n'en contiennent
+aucun, et `PSP-DEMANDE-TYPE.md` fait explicitement contribuer ses questions 6 et
+7 — acceptation Visa, acceptation Mastercard — au point
+`PRODUCT_CATEGORIES_ACCEPTED`.
+
+Conséquence exacte : un prestataire qui répond `YES` sur les catégories de
+produits sans dire un mot des réseaux fait passer ce point à `YES`. Le modèle
+affiche alors une réponse là où l'information n'existe pas. C'est une inférence,
+interdite par la règle « aucune ne s'infère d'une autre ».
+
+Correction proposée : deux points supplémentaires,
+`VISA_ACCEPTANCE_CONFIRMED` et `MASTERCARD_ACCEPTANCE_CONFIRMED`, qui
+deviendraient `UNKNOWN` pour les neuf dossiers — donc **deux blocages de plus**,
+jamais un de moins. Cette correction est indépendante des décisions 05 et 09 :
+elle n'ajoute aucune logique transactionnelle et ne présuppose aucun modèle de
+vente. Elle change en revanche le décompte « quatorze points », repris dans les
+briefs. **`HUMAN DECISION REQUIRED`** sur le renommage.
+
+### C-2 · Trois des douze confirmations n'ont pas de case
+
+`ACTION REQUISE.` La liste des douze confirmations à obtenir par écrit et la
+liste des quatorze points typés ne se recouvrent pas. Trois éléments des douze
+n'ont aucun équivalent dans le code :
+
+| Confirmation exigée | Point correspondant |
+|---|---|
+| 4 · Acceptation Visa | aucun (voir C-1) |
+| 5 · Acceptation Mastercard | aucun (voir C-1) |
+| 12 · Conditions de résiliation et de fonds | aucun — `PRODUCTION_CONDITIONS_STATED` porte le passage en production, pas la sortie |
+
+Une confirmation sans case ne peut pas manquer visiblement : elle est oubliée en
+silence. C'est le contraire de ce que le registre est censé garantir.
+
+### C-3 · `EVIDENCE_LEVEL` n'existe que dans le Markdown
+
+`ACTION REQUISE.` `VERIFIED` · `CONVERGENT` · `UNVERIFIED` est un axe imposé,
+tenu uniquement dans le tableau ci-dessus. `registre.ts` connaît `reference`
+— présente ou absente — ce qui ne distingue pas un refus daté sans archive
+(`CONVERGENT`) d'une page marketing (`UNVERIFIED`). Le tableau et le fichier
+typé peuvent donc diverger sur cet axe précis, alors que le fichier typé a été
+écrit pour empêcher exactement cela.
+
+### C-4 · `PSP-DEMANDE-TYPE.md` se contredit sur sa propre règle
+
+`FAIT / PREUVE.` Le document affirme que « chaque question porte **un seul** des
+quatorze points ». Sa propre table de correspondance dit autre chose : les
+questions 6 et 7 partagent un point, la question 10 n'en porte aucun, la
+question 14 en porte deux. La règle énoncée est fausse pour quatre questions sur
+quinze. Corriger la phrase, pas la table : la table décrit ce que les questions
+font réellement.
+
+### C-5 · États vendeur — le brief liste neuf états, le code en a six
+
+`FAIT / PREUVE.` Le code et la base sont d'accord entre eux
+(`MERCHANT_STATUSES`, `enum MerchantStatus`) : `PENDING_VALIDATION`,
+`KYB_REVIEW`, `APPROVED`, `ACTIVE`, `SUSPENDED`, `CLOSED`. Les briefs citent
+`APPLIED`, `KYB_PENDING`, `REJECTED`, `BLOCKED`, `OFFBOARDED` — aucun de ces
+cinq n'existe nulle part dans le dépôt, et `PENDING_VALIDATION` comme `CLOSED`
+n'apparaissent pas dans le brief. Ce n'est pas une divergence bénigne : une
+migration ne peut pas être planifiée sur une liste d'états imaginaire.
+**`HUMAN DECISION REQUIRED`** — soit le brief est mis à jour, soit une évolution
+d'états est décidée et migrée.
+
+### C-6 · États produit — `DRAFT` n'existe pas
+
+`FAIT / PREUVE.` `COMPLIANCE_STATUSES` en compte cinq : `PENDING_REVIEW`,
+`APPROVED`, `REJECTED`, `SUSPENDED`, `EXPIRED`. `DRAFT` n'existe ni dans le
+domaine ni dans le schéma. À noter : cette machine décrit la **conformité** d'un
+produit, pas sa publication commerciale ; un `DRAFT` y aurait un sens différent
+de celui que le mot suggère.
+
+### C-7 · `DEFAULT_THC_THRESHOLD_PERCENT` n'existe pas, et ne doit pas être créé
+
+`FAIT / PREUVE.` La constante citée dans les briefs est absente du dépôt. La
+valeur `0.3` n'y figure que dans des **fixtures de test**, où elle joue le rôle
+d'un plafond arbitraire pour vérifier une comparaison — jamais celui d'un seuil
+réglementaire. La décision 10 est ouverte ; écrire cette constante trancherait
+un seuil réglementaire en silence, ce qu'interdit la règle « ne jamais inventer
+un seuil réglementaire ». **`LEGAL VALIDATION REQUIRED`** avant toute valeur.
+
+### Ce que la revue n'a pas trouvé
+
+Aucune contradiction entre le registre et O-001. Le gel transactionnel est
+cohérent de bout en bout : aucun dossier n'est qualifié, `assertProviderQualified()`
+n'est appelée nulle part, la garde anti-monétaire passe, et aucun statut du
+registre ne pourrait, même modifié, ouvrir un chemin d'encaissement. Aucun
+dossier n'est enregistré comme envoyé, ce qui est exact : rien ne peut partir
+depuis cet environnement.
 
 ## Conséquence sur le reste du code
 

@@ -115,13 +115,21 @@ export const STRIPE: ProviderDossier = {
 };
 
 /**
- * RoxPay et Stancer — refus écrits, archives non consignées.
+ * RoxPay et Stancer — refus écrits du 21 août 2026, archives non consignées.
  *
- * Le refus est tenu pour établi ; sa référence d'archive ne l'est pas encore. Le
- * verdict est le même dans les deux cas, mais la distinction compte le jour où
- * il faut produire la pièce.
+ * La date est désormais établie ; la référence d'archive ne l'est toujours pas.
+ * Le verdict est le même dans les deux cas, mais la distinction compte le jour
+ * où il faut produire la pièce.
+ *
+ * **Le motif est enregistré comme motif, pas comme fait.** Les deux refus
+ * invoquent des restrictions de réseaux cartes, de banques acquéreuses et de
+ * régulateurs, et précisent que la légalité de l'activité n'est pas en cause.
+ * C'est ce que ces prestataires *disent* de leur chaîne d'acceptation ; ce n'est
+ * ni une décision de Visa, ni une décision de Mastercard, ni une décision d'un
+ * acquéreur nommé, ni une position d'un régulateur. Aucun de ces points n'est
+ * renseigné dans la qualification : citer un tiers ne l'engage pas.
  */
-const refusSansArchive = (nom: string): ProviderDossier => ({
+const refusDu21Aout = (nom: string): ProviderDossier => ({
   providerName: nom,
   qualification: {
     providerName: nom,
@@ -130,7 +138,7 @@ const refusSansArchive = (nom: string): ProviderDossier => ({
         point: "ACTIVITY_ACCEPTED",
         answer: "NO",
         source: "WRITTEN_EMAIL",
-        answeredAt: null,
+        answeredAt: new Date("2026-08-21T00:00:00Z"),
         reference: null,
         conditions: null,
       },
@@ -145,14 +153,14 @@ const refusSansArchive = (nom: string): ProviderDossier => ({
       preparedAt: null,
       sentAt: null,
       proofOfSending: null,
-      answeredAt: null,
-      note: "Refus écrit reçu. Référence d'archive à consigner : émetteur, date et objet.",
+      answeredAt: new Date("2026-08-21T00:00:00Z"),
+      note: "Refus écrit du 21/08/2026. Motif énoncé par le prestataire : restrictions de réseaux cartes, de banques acquéreuses et de régulateurs ; le refus ne met pas en cause la légalité de l'activité. Référence d'archive à consigner : émetteur et objet.",
     },
   ],
 });
 
-export const ROXPAY: ProviderDossier = refusSansArchive("RoxPay");
-export const STANCER: ProviderDossier = refusSansArchive("Stancer");
+export const ROXPAY: ProviderDossier = refusDu21Aout("RoxPay");
+export const STANCER: ProviderDossier = refusDu21Aout("Stancer");
 
 /**
  * Les cinq dossiers sans aucune preuve.

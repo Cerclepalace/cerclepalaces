@@ -10,10 +10,12 @@ destinataire.
 
 ## Pourquoi ce format
 
-Chaque question porte **un seul** des quatorze points de qualification, dans
-l'ordre où le code les nomme. Une réponse groupée — « oui, nous acceptons ce
-type d'activité » — ne remplit qu'une case ; les treize autres restent
-`UNKNOWN`, et le message est construit pour que cela se voie.
+Les questions suivent l'ordre où le code nomme ses quatorze points de
+qualification, et la plupart n'en portent qu'un. Une réponse groupée — « oui,
+nous acceptons ce type d'activité » — ne remplit qu'une case ; les treize autres
+restent `UNKNOWN`, et le message est construit pour que cela se voie. La table
+de correspondance en fin de document dit exactement quelle question remplit
+quelle case, y compris les quatre qui ne se rangent pas une pour une.
 
 La première question est celle qui décide de tout, et elle est posée en
 premier : **qui souscrit le risque ?** Un prestataire qui ne peut pas nommer son
@@ -109,7 +111,11 @@ reste `PREPARED` — ce qui est exact tant que rien ne permet de prouver l'envoi
 
 ## Lecture d'une réponse
 
-Chaque question porte un point, dans cet ordre :
+Onze des quinze questions portent **un seul** point de qualification. Les quatre
+autres ne s'y rangent pas proprement, et la table le dit plutôt que de le
+masquer : les questions 6 et 7 partagent une case faute d'axe réseaux cartes
+dans le modèle — écart `C-1` de la revue de cohérence, `PSP-REGISTRE.md` —, la
+question 10 n'en porte aucune, la question 14 en porte deux.
 
 | Question | Point |
 |---|---|
