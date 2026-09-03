@@ -121,6 +121,12 @@ Specifically:
 10. Is that MCC confirmed, or indicative?
 11. Does Visa impose specific conditions on this activity?
 12. Does Mastercard impose specific conditions on this activity?
+13. Which countries are included, and which excluded, for selling and for shipping?
+14. Do restrictions apply to cardholder location as distinct from merchant location?
+
+Our operating scope at launch is France. We ask questions 13 and 14 explicitly
+rather than assume that a French merchant account implies French-only
+restrictions, or that it implies none.
 
 We record provider, acquirer and card-network answers in separate fields. We
 will not read an answer to one as an answer to another, and a general statement
@@ -138,11 +144,11 @@ alternative spellings; a single listing gate that returns every failing reason
 rather than the first; suspension of individual sellers and products; and an
 audit trail of compliance decisions with the deciding party and date.
 
-On THC levels, so that we are precise rather than reassuring: the project
-currently uses a technical working threshold in its test fixtures, but this value
-is not presented as final legal evidence. The final legal threshold remains
-subject to legal validation. No regulatory threshold is hard-coded in the
-platform; declared and certified levels are recorded as declared.
+On THC levels, so that we are precise rather than reassuring: the technical test
+threshold currently used by the project is not presented as final legal
+evidence. The final legal threshold remains subject to legal validation. No
+regulatory threshold is hard-coded in the platform; declared and certified
+levels are recorded as declared.
 
 **6. Refunds**
 
@@ -204,6 +210,13 @@ France
 
 ---
 
+## Coordonnées
+
+`[Email]` et `[Telephone]` sont des **placeholders**. Aucune coordonnée réelle
+n'est écrite dans ce dépôt : un document destiné à sortir n'est pas l'endroit où
+inventer, ni où recopier, une adresse. Les remplacer est la première des deux
+actions manuelles.
+
 ## Avant l'envoi
 
 Rien de ce message ne peut partir depuis l'environnement de développement.
@@ -211,10 +224,20 @@ L'envoi est une **action humaine**.
 
 ## Après l'envoi
 
-Consigner dans `PSP-REGISTRE.md` et dans `packages/domain/src/psp/registre.ts` :
-date d'envoi, référence du fil, preuve d'envoi. `isActuallySent()` exige **la
-date et la preuve** — sans les deux, la démarche reste `PREPARED`, ce qui est
-exact tant que rien ne permet de prouver l'envoi.
+Trois valeurs sont à relever au moment de l'envoi, et à reporter dans
+`PSP-REGISTRE.md` **et** dans `packages/domain/src/psp/registre.ts` :
+
+| Placeholder | Ce qu'il attend | Champ du registre |
+|---|---|---|
+| `[STRIPE THREAD REFERENCE]` | identifiant du fil ou du ticket rouvert | `threadReference` |
+| `[DATE OF ACTUAL SENDING]` | date réelle de l'envoi | `sentAt` |
+| `[PROOF OF SENDING]` | accusé, identifiant de message, capture | `proofOfSending` |
+
+`isActuallySent()` exige **la date et la preuve** — sans les deux, la démarche
+reste `PREPARED`, ce qui est exact tant que rien ne permet de prouver l'envoi.
+Les trois valeurs sont aujourd'hui absentes du registre, et le resteront tant
+qu'elles ne seront pas réellement disponibles : y écrire une date plausible
+ferait attendre une réponse que personne n'a demandée.
 
 Un envoi daté fait passer `PSP_STATUS` de `UNKNOWN` à `IN_PROGRESS`. Il ne fait
 rien d'autre : il n'ouvre aucun axe, et surtout pas ceux de l'acquéreur.

@@ -61,7 +61,7 @@ Could you please forward this to the team competent for restricted or high-risk 
 
 **Acceptance**
 
-4. Is this activity — hemp-derived products, France, card-not-present — eligible with that acquirer? Please state eligible, ineligible, or subject to enhanced underwriting.
+4. Is this activity — hemp-derived products, France, card-not-present — eligible with that acquirer? Please state eligible, ineligible, or subject to enhanced underwriting. Please also state which countries are included and which excluded, for selling and for shipping, and whether any restriction applies to cardholder location as distinct from merchant location.
 5. For each of the categories listed above, taken separately: eligible, ineligible, restricted, or subject to enhanced underwriting?
 6. Can Visa card acceptance be provided for each eligible category?
 7. Can Mastercard card acceptance be provided for each eligible category?

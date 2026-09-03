@@ -21,7 +21,9 @@
 **Prepared by:** Noa Durand — project cbd-Shop, France
 **Contact:** [Email] · [Telephone]
 **Date of preparation:** 2 September 2026
-**Existing thread:** *Pre-approval request — French multi-vendor CBD marketplace*
+**Existing thread:** *Pre-approval request — French multi-vendor CBD marketplace* — reference `[STRIPE THREAD REFERENCE]`
+**Sent on:** `[DATE OF ACTUAL SENDING]` — not yet sent at the date of preparation
+**Proof of sending:** `[PROOF OF SENDING]`
 
 ## 0. What we are asking for, and what we are not
 
@@ -169,9 +171,9 @@ intention.
 
 ## 6. THC threshold — stated precisely, because precision matters here
 
-The project currently uses a technical working threshold in its test fixtures,
-but this value is not presented as final legal evidence. The final legal
-threshold remains subject to legal validation.
+The technical test threshold currently used by the project is not presented as
+final legal evidence. The final legal threshold remains subject to legal
+validation.
 
 Concretely: no regulatory threshold is hard-coded anywhere in the platform.
 Declared and certified levels are recorded as declared; the applicable limit is
@@ -202,10 +204,17 @@ technically process the transaction does not answer it.
 | Q10 | Is that MCC confirmed, or indicative? | |
 | Q11 | Does Visa impose specific conditions? | |
 | Q12 | Does Mastercard impose specific conditions? | |
+| Q13 | Which countries are included, and which excluded, for selling and for shipping? | |
+| Q14 | Do restrictions apply to cardholder location as distinct from merchant location? | |
 
-We record the answers to Q1–Q10 and to Q11–Q12 in **separate fields**, because
-a provider decision, an acquirer decision and a card-network condition are three
-different things. We will not read an answer to one as an answer to another.
+We record the answers to Q1–Q10, to Q11–Q12 and to Q13–Q14 in **separate
+fields**, because a provider decision, an acquirer decision, a card-network
+condition and a territorial restriction are four different things. We will not
+read an answer to one as an answer to another.
+
+Our operating scope at launch is France. We are asking Q13 and Q14 explicitly
+rather than assuming that a French merchant account implies French-only
+restrictions, or that it implies none.
 
 ## 8. Card networks — two independent confirmations
 
@@ -334,7 +343,7 @@ as a refusal.
 | §7 Q1 · Q2 | `ACQUIRING_ENTITY_IDENTIFIED` |
 | §7 Q3 | `ACQUIRING_COUNTRY_IDENTIFIED` |
 | §7 Q9 · Q10 | `MERCHANT_CATEGORY_CODE_CONFIRMED` |
-| §1 · §7 Q4 | `ACTIVITY_ACCEPTED` |
+| §1 · §7 Q4 · §7 Q13 · §7 Q14 | `ACTIVITY_ACCEPTED` — les restrictions territoriales portent sur l'activité telle qu'elle est présentée, pas sur un axe distinct |
 | §3 | `PRODUCT_CATEGORIES_ACCEPTED` |
 | §7 Q11 · §8 | `VISA_ACCEPTANCE_CONFIRMED` |
 | §7 Q12 · §8 | `MASTERCARD_ACCEPTANCE_CONFIRMED` |
