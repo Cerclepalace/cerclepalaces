@@ -246,7 +246,7 @@ rien d'autre : il n'ouvre aucun axe, et surtout pas ceux de l'acquéreur.
 
 Quatre points au moins resteront `UNKNOWN` si la réponse les élude : l'identité
 de l'acquéreur, le MCC confirmé, l'acceptation Visa et l'acceptation Mastercard.
-Les questions 4.1 à 4.12 sont là pour cela, et une réponse qui les contourne les
+Les questions 4.1 à 4.14 sont là pour cela, et une réponse qui les contourne les
 laisse tous à `UNKNOWN`.
 
 Rappel des trois inférences interdites, parce qu'elles sont faciles à écrire
