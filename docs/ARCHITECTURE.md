@@ -47,6 +47,30 @@ des fonctions pures et des types. C'est ce qui permet d'appliquer exactement la
 même règle dans l'API, dans les quatre back-offices et dans les tests, sans
 duplication et sans dérive.
 
+**Cette phrase est désormais vérifiée à chaque exécution**, et non plus seulement
+écrite ici. `apps/api/src/architecture.guard.test.ts` lit le graphe réel des
+imports et gèle huit frontières que le code possède déjà :
+
+| Frontière | Ce qu'elle empêche |
+|---|---|
+| Le domaine n'importe aucun paquet externe | Qu'une règle métier dépende d'un framework, d'une base ou d'une horloge |
+| Ses tests ne connaissent que `vitest` | Les mêmes, par la porte de service — une exception nommée près, justifiée |
+| Aucune règle ne dépend de `psp/` | Qu'une décision de catalogue soit conditionnée par un dossier commercial |
+| Aucune règle ne dépend de `ports/` | Qu'une règle métier dépende d'un contrat de fournisseur externe |
+| `psp/` ne dépend d'aucun autre module | Que la qualification d'un prestataire emprunte aux règles de la plateforme |
+| `catalog/` ne connaît que `compliance/` et `merchant/` | Qu'un portail de mise en vente aille chercher une commande ou un prix |
+| Aucun cycle | Un graphe où chaque module justifie l'autre |
+| `@cbd/db` reste à sa place | Que la base remonte dans un service ; chaque autorisation est nommée et motivée |
+
+La surface publique du package est elle aussi pointée : `index.ts` procède par
+`export *`, si bien qu'ajouter un module y élargit l'API sans qu'aucun autre
+fichier ne change. La liste des modules exposés est écrite en toutes lettres
+dans la garde, ce qui rend l'élargissement visible en revue.
+
+Le pointage s'arrête aux modules, pas aux deux cent quatre-vingt-dix symboles :
+cette surface a vocation à croître avec le produit, et la figer symbole par
+symbole taxerait chaque commit sans rien empêcher de plus.
+
 Les quatre machines qu'il contient :
 
 | Module | Rôle |
