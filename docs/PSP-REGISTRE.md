@@ -51,7 +51,7 @@ alors qu'il ne l'est pas fait échouer la suite.
 
 | Prestataire | PSP_STATUS | ACQUIRER | MCC | RÉSEAUX | COMPLIANCE | PREUVE |
 |---|---|---|---|---|---|---|
-| Nuvei | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `NOT_OBTAINED` | `VERIFIED` |
+| Nuvei | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `NOT_OBTAINED` | `CONVERGENT` ¹ |
 | RoxPay | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `CONVERGENT` ¹ |
 | Stancer | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `CONVERGENT` ¹ |
 | Stripe | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `VERIFIED` ² |
@@ -61,11 +61,22 @@ alors qu'il ne l'est pas fait échouer la suite.
 | BridgePay | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNVERIFIED` ³ |
 | MangoPay | `EXCLUDED_AT_THIS_STAGE` | — | — | — | — | Décision projet ⁴ |
 
-¹ Refus écrit reçu le **21/08/2026**, **mais la référence d'archive n'est pas
-encore consignée**.
+¹ Refus écrit reçu — le **26/08/2026** pour Nuvei, le **21/08/2026** pour RoxPay
+et Stancer —, **mais la référence d'archive n'est pas encore consignée**.
 Passe à `VERIFIED` dès que l'e-mail est archivé avec expéditeur, date et objet
 identifiables. Tant que la trace n'est pas retrouvable, le niveau reste
 `CONVERGENT` — le fait est tenu pour vrai, il n'est pas encore opposable.
+
+**Nuvei a rejoint cette note le 6 septembre 2026.** Il y portait `VERIFIED`, ce
+que la règle 4 ci-dessus n'autorisait pas : elle exige les quatre éléments
+*cumulativement*, et l'archive retrouvable manque — le dossier prescrivait
+d'ailleurs lui-même, vingt lignes plus bas, l'action « archiver l'e-mail avec sa
+référence ». Trois écrits concordants disaient donc qu'il manquait ce que
+l'étiquette affirmait acquis.
+
+Ce que Nuvei possède et que les deux autres n'ont pas, c'est le **contenu
+citable** : une citation littérale plutôt qu'une paraphrase. C'est le troisième
+critère, pas le quatrième, et il ne comble pas l'archive manquante.
 
 ² La preuve porte **uniquement sur l'état du ticket**, pas sur une décision. Une
 demande de qualification formelle est **rédigée et non envoyée** au 2 septembre
@@ -87,7 +98,10 @@ compter parmi les refus.
   *Pre-approval request — French multi-vendor CBD marketplace*.
 - **STATUT** — `PSP_STATUS = REJECTED`, date 2026-08-26, périmètre *French
   multi-vendor CBD marketplace*.
-- **PREUVE** — `VERIFIED`.
+- **PREUVE** — `CONVERGENT`. La source engage, la date est établie, le contenu
+  est citable — mais la référence d'archive n'est pas consignée, et la règle 4
+  exige les quatre. Le fait est tenu pour vrai ; il n'est pas encore opposable.
+  Voir la note ¹ du tableau.
 - **CE QUE CE REFUS NE DIT PAS** — rien sur l'acquéreur de Nuvei, rien sur un
   MCC, rien sur Visa, rien sur Mastercard, rien sur le CBD en général. Il porte
   sur *le dossier soumis*, et le motif cité mêle localisation et activité sans
@@ -265,7 +279,7 @@ Ce qui ne doit pas être écrit, parce que ce serait faux :
 
 | Prestataire | La preuve établit | Elle n'établit pas | Action suivante |
 |---|---|---|---|
-| Nuvei | Refus de l'activité sur le dossier soumis, 26/08/2026 | Acquéreur, code d'activité, réseaux, modèles A et B, position sur le CBD en général | Consigner la référence d'archive. Éventuellement demander si le motif vise la localisation, l'activité, ou les deux |
+| Nuvei | Refus de l'activité sur le dossier soumis, 26/08/2026, avec citation littérale | Acquéreur, code d'activité, réseaux, modèles A et B, position sur le CBD en général — et l'opposabilité, faute d'archive consignée | Consigner la référence d'archive : elle seule fait passer à `VERIFIED`. Éventuellement demander si le motif vise la localisation, l'activité, ou les deux |
 | RoxPay | Refus écrit de l'activité, 21/08/2026 | Tout le reste — et notamment rien sur Visa, Mastercard, un acquéreur nommé ou un régulateur, bien que le motif les cite | Consigner émetteur et objet |
 | Stancer | Refus écrit de l'activité, 21/08/2026 | Idem RoxPay | Idem RoxPay |
 | Stripe | L'état du fil : mise en attente puis clôture administrative | **Aucune décision.** Ni refus, ni acceptation, sur aucun point | Envoyer la relance, dans le fil existant |
