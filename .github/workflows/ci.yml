@@ -1,0 +1,114 @@
+# Ce que ce dépôt vérifie tout seul.
+#
+# Avant ce fichier, six cent soixante et un tests, quatre migrations et deux
+# gardes statiques ne s'exécutaient que si quelqu'un pensait à lancer les
+# commandes. Une garantie qui dépend d'une mémoire humaine n'est pas une
+# garantie.
+#
+# Le point important n'est pas d'exécuter la suite : c'est d'exécuter les
+# quarante-trois tests d'intégration que `describe.skipIf` range en « sautés »
+# quand PROJET1_TEST_DATABASE_URL est absente. Sans base, la suite affiche
+# « 661 passés » en taisant qu'un tiers de la couverture d'intégration n'a pas
+# tourné. Un vert qui ment coûte plus cher qu'un rouge.
+#
+# D'où le service PostgreSQL ci-dessous, et l'étape finale qui refuse un run
+# comportant le moindre test sauté.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    name: typecheck · lint · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        # Même version majeure qu'en développement. Une intégration testée
+        # contre une autre version ne prouve pas grand-chose du jour où elle
+        # tournera contre celle-ci.
+        image: postgres:16
+        env:
+          POSTGRES_USER: cbd
+          POSTGRES_PASSWORD: cbd
+          POSTGRES_DB: cbd_test
+        ports:
+          - 5432:5432
+        # Sans ce contrôle, les premières étapes démarrent avant que le serveur
+        # accepte les connexions, et l'échec ressemble à un bug applicatif.
+        options: >-
+          --health-cmd "pg_isready -U cbd"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://cbd:cbd@localhost:5432/cbd_test
+      PROJET1_TEST_DATABASE_URL: postgresql://cbd:cbd@localhost:5432/cbd_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Aucun postinstall n'engendre le client Prisma : sans cette étape, le
+      # typecheck échouerait sur des types qui n'existent pas encore.
+      - name: Engendrer le client Prisma
+        run: npm run generate -w @cbd/db
+
+      # `migrate deploy` applique les migrations existantes, il n'en crée
+      # aucune et n'en modifie aucune. Il échoue si le schéma a dérivé — ce qui
+      # est exactement le signal recherché.
+      - name: Appliquer les migrations
+        run: npm run migrate:deploy -w @cbd/db
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # `set -o pipefail` n'est pas actif par défaut dans les étapes GitHub
+      # Actions : sans lui, le code de sortie retenu serait celui de `tee`, et
+      # une suite rouge passerait pour verte. C'est exactement la classe de
+      # panne que ce workflow existe pour supprimer.
+      - name: Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/tests.log
+
+      # L'étape qui donne son sens à toutes les autres.
+      #
+      # Un test sauté ici signifie que le câblage de la base a cassé : la suite
+      # serait verte, et l'intégration n'aurait pas tourné. On refuse ce vert.
+      # Le motif tolère « 0 skipped » et n'attrape que les comptes non nuls.
+      - name: Refuser un run comportant des tests sautés
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -qE "[1-9][0-9]* skipped" /tmp/tests.log; then
+            echo "::error::Des tests ont été sautés. En CI, une suite verte doit être une suite complète."
+            grep -E "Tests +" /tmp/tests.log
+            exit 1
+          fi
+          echo "Aucun test sauté."

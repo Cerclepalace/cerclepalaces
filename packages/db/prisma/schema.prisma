@@ -1,0 +1,976 @@
+// Schéma de données — Projet 1, infrastructure de livraison pour CBD shops.
+//
+// Quatre principes structurent tout ce fichier :
+//
+//  1. `Inventory` est le pivot du catalogue, pas `Product`. Un produit existe une
+//     fois au référentiel ; son prix, son stock et sa mise en vente appartiennent
+//     à une `MerchantLocation` précise. La plateforme ne doit jamais présenter un
+//     produit comme disponible partout parce qu'il existe au catalogue global.
+//
+//  2. La conformité est indépendante du commerce. Un produit peut être en stock,
+//     prixé et listé tout en étant interdit à la vente. Seul `APPROVED` autorise
+//     la commande — la règle est appliquée dans @cbd/domain (`isOrderable`).
+//
+//  3. Multi-tenancy stricte. Les tables réellement tenantées portent un
+//     `merchantId` direct, pour que l'isolation soit indexable et vérifiable sans
+//     jointure. Le repository impose le `TenantScope` ; cette colonne en est la
+//     contrepartie côté données. Voir docs/DELIVERY-NETWORK.md.
+//
+//  4. Le `Driver` n'appartient à aucun merchant. C'est un acteur du réseau
+//     logistique, susceptible de livrer pour plusieurs shops — et, hors de notre
+//     plateforme, pour d'autres services. Il n'a donc délibérément pas de
+//     `merchantId`.
+//
+// Les montants sont des entiers en centimes. Aucun flottant sur de l'argent.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identité et rôles
+// ---------------------------------------------------------------------------
+
+enum Role {
+  customer
+  merchant_owner
+  merchant_staff
+  driver
+  support_agent
+  admin
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String?
+  emailVerifiedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  // Suppression RGPD : anonymisation plutôt que suppression physique, pour ne
+  // pas casser l'historique comptable des commandes déjà livrées.
+  anonymizedAt DateTime?
+
+  roles           UserRole[]
+  customerProfile CustomerProfile?
+  merchantStaff   MerchantStaff[]
+  driver          Driver?
+  sessions        Session[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  supportTickets  SupportTicket[]
+
+  @@index([anonymizedAt])
+}
+
+// Un compte peut porter plusieurs rôles (un commerçant reste un client).
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  role   Role
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  ipHash     String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model CustomerProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  firstName String?
+  lastName  String?
+  createdAt DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addresses Address[]
+  carts     Cart[]
+  orders    Order[]
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  customerId String
+  label      String?
+  line1      String
+  line2      String?
+  postalCode String
+  city       String
+  country    String  @default("FR")
+  lat        Float?
+  lng        Float?
+  // Instructions de livraison : donnée libre, à ne pas exposer au-delà du
+  // driver assigné et pour la durée de la course seulement.
+  notes      String?
+  archivedAt DateTime?
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@index([customerId])
+}
+
+// ---------------------------------------------------------------------------
+// Commerçants
+// ---------------------------------------------------------------------------
+
+// Six états. `APPROVED` ne vend pas : valider un dossier et ouvrir un commerce
+// sont deux décisions distinctes. Voir packages/domain/src/merchant/status.ts.
+enum MerchantStatus {
+  PENDING_VALIDATION
+  KYB_REVIEW
+  APPROVED
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+model Merchant {
+  id           String         @id @default(cuid())
+  legalName    String
+  tradeName    String
+  // Identifiants légaux : nécessaires au KYB du PSP, dont les exigences exactes
+  // restent à confirmer (docs/TO_VERIFY.md, décision 09).
+  registrationNumber String?
+  vatNumber          String?
+  // Champs critiques du KYB : leur modification renvoie le shop à l'examen.
+  // Voir CRITICAL_KYB_FIELDS dans packages/domain/src/merchant/status.ts.
+  legalForm          String?
+  // Référence opaque du bénéficiaire effectif, et empreinte du compte bancaire.
+  // Détecter un changement n'exige pas de connaître la valeur : rien n'est
+  // stocké en clair ici.
+  beneficialOwnerRef String?
+  bankAccountRef     String?
+  status       MerchantStatus @default(PENDING_VALIDATION)
+  createdAt    DateTime       @default(now())
+  validatedAt  DateTime?
+
+  locations MerchantLocation[]
+  staff     MerchantStaff[]
+  products  Product[]
+  inventory Inventory[]
+  carts     Cart[]
+  orders    Order[]
+  qrCodes   QrCode[]
+  qrEvents  QrScanEvent[]
+  deliveries Delivery[]
+  dispatchRounds DispatchRound[]
+}
+
+model MerchantLocation {
+  id         String   @id @default(cuid())
+  merchantId String
+  // Slug imprimé sur le support physique du QR : immuable une fois distribué.
+  slug       String   @unique
+  name       String
+  line1      String
+  line2      String?
+  postalCode String
+  city       String
+  country    String   @default("FR")
+  lat        Float
+  lng        Float
+  phone      String?
+  isOpen     Boolean  @default(false)
+  zoneId     String?
+  createdAt  DateTime @default(now())
+
+  merchant  Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  zone      Zone?          @relation(fields: [zoneId], references: [id])
+  hours     OpeningHours[]
+  inventory Inventory[]
+  orders    Order[]
+  carts     Cart[]
+  qrCodes   QrCode[]
+  qrEvents  QrScanEvent[]
+  staff     MerchantStaff[]
+
+  @@index([merchantId])
+  @@index([zoneId])
+}
+
+model OpeningHours {
+  id         String @id @default(cuid())
+  locationId String
+  // 0 = dimanche … 6 = samedi
+  weekday    Int
+  opensAt    String // "09:30"
+  closesAt   String // "19:00"
+
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId])
+}
+
+model MerchantStaff {
+  id         String   @id @default(cuid())
+  userId     String
+  merchantId String
+  // Null pour un merchant_owner : il couvre toutes les locations du Merchant.
+  locationId String?
+  role       Role
+  createdAt  DateTime @default(now())
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  location MerchantLocation? @relation(fields: [locationId], references: [id])
+
+  @@unique([userId, merchantId, locationId])
+  @@index([merchantId])
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue, stock et conformité
+// ---------------------------------------------------------------------------
+
+// Taxonomie de conformité, fermée. Elle remplace la table `ProductCategory`,
+// qui était un arbre à slugs libres : deux systèmes de catégories concurrents,
+// dont l'un ouvert, redonnaient à un produit une porte que la taxonomie fermée
+// venait de fermer. Voir packages/domain/src/catalog/policy.ts.
+//
+// Il n'existe pas de catégorie « CBD » : un produit au CBD peut être une fleur,
+// une huile, un aliment ou un cosmétique, et ces natures ne relèvent pas des
+// mêmes règles.
+enum ProductCategory {
+  FLOWER
+  RESIN
+  OIL_NON_FOOD
+  COSMETIC
+  FOOD
+  SUPPLEMENT
+  VAPE
+  ACCESSORY
+  // Non classé. Attend un classement humain ; ne s'ouvre jamais.
+  OTHER
+  // Fermée par construction. Aucune politique ne peut l'ouvrir.
+  PROHIBITED_DERIVATIVE
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  merchantId  String?
+  // Nullable tant que le produit n'est pas classé. Le portail de mise en vente
+  // refuse un produit sans catégorie : l'absence bloque, elle n'autorise pas.
+  category    ProductCategory?
+  name        String
+  description String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+
+  merchant   Merchant?          @relation(fields: [merchantId], references: [id])
+  compliance ProductCompliance?
+  inventory  Inventory[]
+  orderItems OrderItem[]
+
+  @@index([merchantId])
+  @@index([category])
+}
+
+enum ComplianceStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+  EXPIRED
+}
+
+// Aucun seuil réglementaire n'est codé en dur ici : les taux sont enregistrés
+// tels que déclarés et certifiés, et les seuils applicables restent à confirmer
+// auprès de sources officielles (docs/TO_VERIFY.md, décision 10).
+model ProductCompliance {
+  id          String           @id @default(cuid())
+  productId   String           @unique
+  status      ComplianceStatus @default(PENDING_REVIEW)
+
+  // Deux mesures de THC qui ne se substituent pas. `delta9ThcPercent` est celle
+  // sur laquelle un plafond peut porter ; `totalThcPercent` est informative et
+  // agrège des formes qui n'ont pas le même statut. Les confondre dans un sens
+  // refuserait des produits conformes, dans l'autre en laisserait passer.
+  delta9ThcPercent Decimal?    @db.Decimal(6, 4)
+  totalThcPercent  Decimal?    @db.Decimal(6, 4)
+  cbdContent  Decimal?         @db.Decimal(6, 4)
+
+  composition String?
+  supplier    String?
+  batchNumber String?
+  // Laboratoire émetteur du certificat. Sans lui, il n'y a personne à
+  // recontacter en cas de doute, ni personne à opposer.
+  laboratory  String?
+  // Date d'émission de l'analyse, distincte de la date de vérification par la
+  // plateforme : une analyse ne peut pas avoir été faite demain.
+  issuedAt    DateTime?
+
+  verifiedAt  DateTime?
+  verifiedBy  String?
+  expiresAt   DateTime?
+  reviewNotes String?
+
+  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  documents ComplianceDocument[]
+
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model ComplianceDocument {
+  id           String   @id @default(cuid())
+  complianceId String
+  kind         String // certificat d'analyse, fiche fournisseur, etc.
+  fileUrl      String
+  uploadedAt   DateTime @default(now())
+
+  compliance ProductCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+
+  @@index([complianceId])
+}
+
+// Le pivot du catalogue : prix et stock par point de vente. Tenanté.
+model Inventory {
+  id         String   @id @default(cuid())
+  merchantId String
+  locationId String
+  productId  String
+  priceCents Int
+  stock      Int      @default(0)
+  // Le commerçant peut retirer un produit de la vente sans toucher au stock.
+  isListed   Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+
+  merchant Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, productId])
+  @@index([productId])
+  @@index([merchantId, isListed])
+}
+
+// ---------------------------------------------------------------------------
+// Panier et commandes
+// ---------------------------------------------------------------------------
+
+model Cart {
+  id         String   @id @default(cuid())
+  merchantId String
+  customerId String
+  locationId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime?
+
+  merchant Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer CustomerProfile  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  items    CartItem[]
+
+  @@index([customerId])
+  @@index([merchantId, updatedAt])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, productId])
+}
+
+// Comment une commande est libérée vers la préparation. Décrit la forme du flux,
+// pas un moyen de paiement : le mode dit qu'une confirmation extérieure est
+// attendue, il ne dit ni de qui ni de quoi. Ce sont les statuts
+// `PENDING_PAYMENT` et `PAID` qui portent cette sémantique, pas le mode.
+//
+// `EXTERNAL_CONFIRMATION` est déclaré mais inatteignable aujourd'hui :
+// `NoopPaymentProvider` refuse toute opération, donc aucune confirmation ne peut
+// arriver. Voir packages/domain/src/order/status.ts.
+enum OrderFulfillmentMode {
+  EXTERNAL_CONFIRMATION
+  MERCHANT_DIRECT
+}
+
+enum OrderStatus {
+  CART
+  PENDING_PAYMENT
+  PAID
+  ACCEPTED
+  PREPARING
+  READY_FOR_PICKUP
+  DRIVER_ASSIGNED
+  PICKED_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  PAYMENT_FAILED
+  MERCHANT_REJECTED
+  DELIVERY_FAILED
+  CUSTOMER_UNAVAILABLE
+  INCIDENT
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  reference  String      @unique
+  merchantId String
+  customerId String
+  locationId String
+  addressId  String?
+  status     OrderStatus @default(CART)
+
+  // Volontairement **sans valeur par défaut** : chaque création de commande doit
+  // dire de quel flux elle relève. Un défaut choisirait à la place de
+  // l'appelant, et le mauvais défaut est silencieux dans les deux sens — vers
+  // `MERCHANT_DIRECT`, une commande à confirmer contournerait sa confirmation ;
+  // vers `EXTERNAL_CONFIRMATION`, une commande du pilote resterait bloquée en
+  // panier. Obliger à choisir supprime les deux.
+  fulfillmentMode OrderFulfillmentMode
+
+  // Verrou optimiste. Toute transition de statut passe par le service, qui
+  // compare cette valeur à celle lue avant d'écrire : deux écritures
+  // concurrentes ne peuvent pas s'écraser silencieusement.
+  version    Int         @default(0)
+
+  // Répartition figée à la validation. Recalculer a posteriori donnerait un
+  // montant différent si les prix ou la config de revenus ont changé depuis.
+  productsSubtotalCents Int
+  deliveryFeeCents      Int
+  customerTotalCents    Int
+  merchantPayoutCents   Int
+  driverPayoutCents     Int
+  platformNetCents      Int
+
+  placedAt    DateTime?
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  merchant     Merchant             @relation(fields: [merchantId], references: [id])
+  customer     CustomerProfile      @relation(fields: [customerId], references: [id])
+  location     MerchantLocation     @relation(fields: [locationId], references: [id])
+  address      Address?             @relation(fields: [addressId], references: [id])
+  items        OrderItem[]
+  statusEvents OrderStatusEvent[]
+  delivery     Delivery?
+  incidents    Incident[]
+  qrEvents     QrScanEvent[]
+
+  @@index([customerId])
+  @@index([locationId])
+  @@index([merchantId, status])
+  @@index([merchantId, createdAt])
+}
+
+// Chaque ligne conserve le nom et le prix au moment de la commande : le
+// catalogue peut changer, la facture ne doit pas bouger.
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String
+  productId      String
+  nameSnapshot   String
+  unitPriceCents Int
+  quantity       Int
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// Journal des transitions : reconstitue l'historique complet d'une commande,
+// et sert de preuve en cas de litige avec un shop ou un driver.
+model OrderStatusEvent {
+  id         String      @id @default(cuid())
+  orderId    String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  actorRole  String
+  actorId    String?
+  reason     String?
+  createdAt  DateTime    @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Zones
+// ---------------------------------------------------------------------------
+
+// Zone logique en V1 : un identifiant partagé entre un point de vente et les
+// drivers qui acceptent d'y travailler. Aucune géométrie, aucun calcul
+// géospatial. La latitude/longitude existe déjà sur `MerchantLocation`,
+// `Address` et `Driver` : le jour où la zone logique ne suffit plus, le moteur
+// de dispatch peut passer à un rayon réel sans changer le modèle de données.
+model Zone {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  city      String
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  locations         MerchantLocation[]
+  drivers           DriverZone[]
+  pickupDeliveries  Delivery[]         @relation("PickupZone")
+  dropoffDeliveries Delivery[]         @relation("DropoffZone")
+}
+
+// ---------------------------------------------------------------------------
+// Drivers
+// ---------------------------------------------------------------------------
+
+enum DriverVerification {
+  APPLICATION_SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+// `ONLINE` signifie exactement une chose : le driver accepte de **recevoir des
+// propositions**. Cela ne l'engage jamais à accepter une course. Il peut
+// refuser, laisser expirer, ou repasser hors ligne — sans pénalité automatique.
+//
+// C'est une conséquence directe du modèle : un driver Projet 1 n'est pas
+// exclusif et peut travailler en parallèle avec d'autres plateformes.
+enum DriverAvailability {
+  OFFLINE
+  ONLINE
+  PAUSED
+}
+
+// Le statut juridique du driver (indépendant / salarié / autre) n'est pas
+// arrêté — docs/TO_VERIFY.md, décision 01. Aucun champ ne le présuppose ici.
+//
+// Pas de `merchantId` : un driver est un acteur du réseau, pas la propriété
+// d'un shop. Il peut recevoir des offres de plusieurs merchants.
+model Driver {
+  id           String             @id @default(cuid())
+  userId       String             @unique
+  firstName    String
+  lastName     String
+  phone        String
+  verification DriverVerification @default(APPLICATION_SUBMITTED)
+  availability DriverAvailability @default(OFFLINE)
+  vehicleType  String?
+  legalStatus  String?
+  approvedAt   DateTime?
+  createdAt    DateTime           @default(now())
+
+  // Dernière position connue : écrasée à chaque mise à jour, jamais historisée
+  // hors mission (minimisation RGPD — docs/RGPD.md).
+  lastLat      Float?
+  lastLng      Float?
+  lastSeenAt   DateTime?
+
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  zones           DriverZone[]
+  availabilityLog DriverAvailabilityLog[]
+  assignments     DeliveryAssignment[]
+  deliveries      Delivery[]
+  decisions       DispatchDecision[]
+
+  @@index([availability, verification])
+}
+
+// Un driver peut couvrir plusieurs zones — c'est la condition d'un réseau
+// partagé entre plusieurs shops.
+model DriverZone {
+  id       String @id @default(cuid())
+  driverId String
+  zoneId   String
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  zone   Zone   @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, zoneId])
+  @@index([zoneId])
+}
+
+// Historique des périodes de disponibilité, distinct de l'état courant.
+// Sert à mesurer l'offre réelle par zone et par créneau — la donnée qui dira si
+// le réseau tient, bien avant qu'un algorithme de dispatch sophistiqué serve à
+// quoi que ce soit.
+model DriverAvailabilityLog {
+  id        String             @id @default(cuid())
+  driverId  String
+  status    DriverAvailability
+  startedAt DateTime
+  endedAt   DateTime?
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId, startedAt])
+  @@index([status, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Livraison
+// ---------------------------------------------------------------------------
+
+enum DeliveryStatus {
+  PENDING_DISPATCH
+  OFFERING
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  CANCELLED
+  UNASSIGNED
+}
+
+// La `Delivery` est tenantée : elle appartient au merchant de la commande.
+// Le driver assigné n'en devient jamais propriétaire — `assignedDriverId` est
+// une affectation logistique, pas un rattachement de tenant.
+model Delivery {
+  id                String         @id @default(cuid())
+  merchantId        String
+  orderId           String         @unique
+  status            DeliveryStatus @default(PENDING_DISPATCH)
+  assignedDriverId  String?
+  pickupZoneId      String?
+  dropoffZoneId     String?
+
+  // Verrou optimiste, même rôle que sur `Order` : deux acceptations simultanées
+  // ne peuvent pas produire deux drivers assignés.
+  version           Int            @default(0)
+
+  pickedUpAt        DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  distanceMeters    Int?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  merchant       Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  order          Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignedDriver Driver?            @relation(fields: [assignedDriverId], references: [id])
+  pickupZone     Zone?              @relation("PickupZone", fields: [pickupZoneId], references: [id])
+  dropoffZone    Zone?              @relation("DropoffZone", fields: [dropoffZoneId], references: [id])
+  assignments    DeliveryAssignment[]
+  statusEvents   DeliveryStatusEvent[]
+  proofs         ProofOfDelivery[]
+  dispatchRounds DispatchRound[]
+
+  @@index([merchantId, status])
+  @@index([status, createdAt])
+  @@index([assignedDriverId])
+}
+
+// Même principe que `OrderStatusEvent` : l'historique n'est pas un effet de
+// bord facultatif, il est écrit dans la même transaction que le statut.
+model DeliveryStatusEvent {
+  id         String          @id @default(cuid())
+  deliveryId String
+  fromStatus DeliveryStatus?
+  toStatus   DeliveryStatus
+  actorRole  String
+  actorId    String?
+  reason     String?
+  createdAt  DateTime        @default(now())
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, createdAt])
+}
+
+enum AssignmentStatus {
+  OFFERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+// Une proposition faite à un driver. L'historique complet est conservé, y
+// compris après réassignation : c'est ce qui permet de répondre à « pourquoi
+// cette course a-t-elle mis vingt minutes à trouver preneur ? ».
+//
+// L'index unique partiel garantissant « une seule ACCEPTED par delivery » n'est
+// pas exprimable en Prisma : il est créé à la main dans la migration
+// (`uniq_delivery_accepted_assignment`) et doublé par le verrou optimiste sur
+// `Delivery.version`.
+model DeliveryAssignment {
+  id              String           @id @default(cuid())
+  deliveryId      String
+  driverId        String
+  status          AssignmentStatus @default(OFFERED)
+  // Rang du driver dans le classement de la tournée de dispatch : rend
+  // l'ordre de proposition relisible après coup.
+  rank            Int
+  offeredAt       DateTime         @default(now())
+  expiresAt       DateTime
+  respondedAt     DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  driver   Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, offeredAt])
+  @@index([driverId, status])
+  @@index([status, expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch
+// ---------------------------------------------------------------------------
+
+// Une tentative de dispatch : un passage du moteur sur une livraison.
+// `merchantId` est présent pour que le shop puisse consulter ses propres
+// tournées — « pourquoi ma course n'a pas trouvé de driver » est une question
+// légitime côté commerçant, pas seulement côté plateforme.
+model DispatchRound {
+  id            String    @id @default(cuid())
+  merchantId    String
+  deliveryId    String
+  roundNumber   Int
+  candidateCount Int      @default(0)
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+
+  merchant  Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  delivery  Delivery           @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  decisions DispatchDecision[]
+
+  @@unique([deliveryId, roundNumber])
+  @@index([merchantId, startedAt])
+}
+
+// Une décision individuelle du moteur, retenue **avec son motif**.
+//
+// C'est ce qui rend le dispatch auditable : on doit pouvoir répondre
+// « pourquoi cette course a-t-elle été proposée à ce driver et pas à celui-ci ».
+// Les drivers écartés sont enregistrés au même titre que ceux retenus.
+model DispatchDecision {
+  id                     String   @id @default(cuid())
+  roundId                String
+  deliveryId             String
+  driverId               String
+  decision               String // OFFERED | SKIPPED | ACCEPTED | REJECTED | EXPIRED
+  reason                 String // voir DispatchReason dans @cbd/domain
+  rank                   Int?
+  distanceMeters         Int?
+  estimatedPickupSeconds Int?
+  createdAt              DateTime @default(now())
+
+  round  DispatchRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  driver Driver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([roundId])
+  @@index([deliveryId, createdAt])
+  @@index([driverId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Preuve de remise
+// ---------------------------------------------------------------------------
+
+enum ProofType {
+  PHOTO
+  SIGNATURE
+  CODE
+}
+
+// Le domaine ne stocke jamais le fichier lui-même : il conserve une référence
+// vers le stockage objet. Plusieurs preuves par livraison sont possibles — une
+// photo *et* un code, par exemple — car le mécanisme retenu dépendra de la
+// décision sur la vérification d'âge (docs/TO_VERIFY.md, décision 11).
+model ProofOfDelivery {
+  id         String    @id @default(cuid())
+  deliveryId String
+  type       ProofType
+  storageKey String?
+  // Empreinte du code de confirmation, jamais le code en clair.
+  codeHash   String?
+  capturedAt DateTime  @default(now())
+  metadata   Json?
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId])
+}
+
+// ---------------------------------------------------------------------------
+// Rémunération driver et paiement — HORS PÉRIMÈTRE (décision 14, option C)
+// ---------------------------------------------------------------------------
+
+// Les modèles `DriverPayout` et `Payment`, ainsi que l'énumération
+// `PaymentStatus`, ont été retirés de ce schéma avant la première migration.
+//
+// Pourquoi. Leur forme dépend de décisions qui ne sont pas prises : qui est le
+// vendeur légal (décision 05), quel PSP et quel modèle de flux (décision 09),
+// quel statut juridique pour le driver et quelle formule de rémunération
+// (décisions 01 et 04). Les figer en base aujourd'hui reviendrait à trancher ces
+// questions en silence, du côté d'un modèle marketplace qui n'est pas retenu —
+// et à redessiner ces colonnes de toute façon le jour où les réponses arrivent.
+//
+// Ce que ce retrait ne fait pas. Il ne retire aucune règle de calcul :
+// `packages/domain/src/pricing/breakdown.ts` et
+// `packages/domain/src/delivery/payout.ts` restent en place et testés, et
+// `Order` conserve sa répartition figée (`merchantPayoutCents`,
+// `driverPayoutCents`, `platformNetCents`). Ce sont des montants calculés à la
+// commande, pas un journal de mouvements : rien n'y est encaissé ni versé.
+//
+// Réintroduction. Ces modèles reviendront par une migration dédiée, une fois les
+// décisions 05 et 09 arrêtées. Leur forme d'origine reste lisible dans
+// l'historique git de ce fichier.
+
+// ---------------------------------------------------------------------------
+// Acquisition par QR
+// ---------------------------------------------------------------------------
+
+enum QrStatus {
+  ACTIVE
+  DISABLED
+}
+
+model QrCode {
+  id         String   @id @default(cuid())
+  merchantId String
+  locationId String
+  code       String   @unique
+  status     QrStatus @default(ACTIVE)
+  medium     String? // carte, sticker, chevalet, vitrine…
+  createdAt  DateTime @default(now())
+  disabledAt DateTime?
+
+  merchant Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  location MerchantLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  scans    QrScanEvent[]
+
+  @@index([locationId])
+  @@index([merchantId, status])
+}
+
+// Une ligne par étape du tunnel scan → commande. `sessionKey` relie les
+// événements d'un même visiteur sans exiger de compte : c'est un identifiant
+// technique éphémère, pas un profil publicitaire.
+//
+// `customerRef` est un pseudonyme stable et haché, présent uniquement une fois
+// le visiteur devenu client. C'est ce qui rend le **réachat** mesurable sans
+// conserver d'identité nominative dans la table d'analytique.
+model QrScanEvent {
+  id          String   @id @default(cuid())
+  merchantId  String
+  qrCodeId    String?
+  locationId  String?
+  eventType   String // qr_scan, shop_view, product_view, add_to_cart, order_review, order_completed
+  sessionKey  String
+  customerRef String?
+  orderId     String?
+  createdAt   DateTime @default(now())
+
+  merchant Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  qrCode   QrCode?           @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
+  location MerchantLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  order    Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([qrCodeId, createdAt])
+  @@index([sessionKey])
+  @@index([merchantId, eventType, createdAt])
+  @@index([merchantId, customerRef])
+}
+
+// ---------------------------------------------------------------------------
+// Support et traçabilité
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  channel   String // push, email, sms, in_app
+  template  String
+  payload   Json?
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+model Incident {
+  id         String         @id @default(cuid())
+  orderId    String?
+  kind       String // retard, produit manquant, accident driver, litige…
+  status     IncidentStatus @default(OPEN)
+  severity   String         @default("normal")
+  reportedBy String?
+  summary    String
+  resolution String?
+  createdAt  DateTime       @default(now())
+  resolvedAt DateTime?
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model SupportTicket {
+  id        String   @id @default(cuid())
+  userId    String
+  subject   String
+  body      String
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// Journal des actions sensibles : validation d'un shop ou d'un driver,
+// changement de statut de conformité, remboursement, accès à des données
+// personnelles depuis le back-office.
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  actorRole    String
+  action       String
+  targetType   String
+  targetId     String
+  metadata     Json?
+  ipHash       String?
+  createdAt    DateTime @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}

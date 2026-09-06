@@ -1,26 +1,97 @@
-# Convertisseur Short
+# Plateforme de livraison CBD
 
-Depuis une vidéo YouTube tu peux la couper en format 16:9 et la mettre en format 60 - 80 seconde donc des vidéo coupez en format short @connector:tiktok:"TikTok" avec des sous titre en format néon blanc et vert
+Marketplace et infrastructure de livraison pour **CBD shops physiques**. Les
+shops existent déjà : la plateforme leur apporte une présence numérique, un
+système de commande, un QR d'acquisition et un réseau de coursiers. Elle ne les
+remplace pas.
 
-This project was built with [Lovable](https://lovable.dev).
+```
+SHOP PHYSIQUE → QR CODE → CLIENT → COMMANDE → SHOP → COURSIER → LIVRAISON
+```
 
-**Live app**: https://cerclepalaces.lovable.app
+> **Note temporaire sur le dépôt.** Ce projet occupe pour l'instant une branche
+> d'un dépôt qui héberge par ailleurs un projet sans rapport (un convertisseur
+> vidéo, relié à Lovable et en production). Ce projet-là vit sur `main` et n'est
+> pas affecté : cette branche a simplement été vidée de ses fichiers.
+>
+> **Ne pas fusionner cette branche dans `main`** — cela supprimerait le
+> convertisseur de `main`, et Lovable répercuterait la suppression sur
+> l'application en ligne. La branche est destinée à devenir son propre dépôt.
 
-## Build with Lovable
+## État du projet
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/0e0013e8-a252-4d62-b6d8-b97bd637eade).
+Phase 1 en cours — **socle métier**. Ce qui existe aujourd'hui :
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- `packages/domain` — les règles métier, testées
+- `packages/config` — validation de la configuration, qui refuse de démarrer si elle est incomplète
+- `packages/db` — schéma Prisma et client partagé
+- `apps/api` — authentification, contrôle d'accès, services commande et livraison, adaptateurs Prisma, contrat HTTP
+- `docs/` — architecture, réseau de livraison, modèle économique, conformité, RGPD, propriété intellectuelle, décisions ouvertes
 
-## Development
+**310 tests, typecheck propre.** Les interfaces (`apps/client`, `shop`,
+`driver`, `admin`) restent des emplacements réservés.
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## Démarrer
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+npm install
+npm test          # 310 tests, tous les paquets
+npm run typecheck
 ```
+
+```sh
+cd packages/db
+npm install
+DATABASE_URL="postgresql://…" npx prisma validate
+```
+
+## Structure
+
+```
+apps/
+  client/   interface client
+  shop/     back-office commerçant
+  driver/   application coursier
+  admin/    back-office plateforme
+  api/      API centrale — seul écrivain de la base
+packages/
+  domain/   règles métier pures — aucune dépendance framework
+  db/       schéma Prisma
+  ui/       design system partagé
+  config/   config TypeScript / lint partagée
+docs/
+```
+
+## Les deux invariants
+
+**`Inventory` est le pivot du catalogue, pas `Product`.** Prix et stock
+appartiennent à un point de vente précis, jamais au catalogue global. Un produit
+n'est jamais présenté comme disponible parce qu'il existe quelque part.
+
+**Les transitions sont contrôlées côté serveur.** Chaque changement de statut,
+commande ou livraison, passe par `assertTransition` / `assertDeliveryTransition`,
+qui vérifient la transition *et* le droit de l'acteur. Aucune app front n'écrit
+un statut.
+
+**La multi-tenancy est imposée par le typage.** `TenantScope` est un type
+nominal : une méthode de repository tenantée ne peut pas être appelée sans lui,
+et aucun rôle — admin compris — ne le contourne implicitement.
+
+## Décisions non arrêtées
+
+Le statut juridique des coursiers, le modèle économique, qui est le vendeur
+légal, le PSP et les seuils de conformité **ne sont pas tranchés**. Le code ne
+présuppose aucune réponse : voir [`docs/TO_VERIFY.md`](docs/TO_VERIFY.md).
+
+Le logiciel peut avancer en parallèle ; c'est la mise en service réelle qui
+attend ces décisions.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Réseau de livraison](docs/DELIVERY-NETWORK.md)
+- [Modèle économique](docs/MODELE-ECONOMIQUE.md)
+- [Conformité produit](docs/CONFORMITE-CBD.md)
+- [Données personnelles](docs/RGPD.md)
+- [Propriété intellectuelle](docs/PROPRIETE-INTELLECTUELLE.md)
+- [Décisions ouvertes](docs/TO_VERIFY.md)
