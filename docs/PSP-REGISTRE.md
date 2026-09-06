@@ -51,7 +51,7 @@ alors qu'il ne l'est pas fait échouer la suite.
 
 | Prestataire | PSP_STATUS | ACQUIRER | MCC | RÉSEAUX | COMPLIANCE | PREUVE |
 |---|---|---|---|---|---|---|
-| Nuvei | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `NOT_OBTAINED` | `CONVERGENT` ¹ |
+| Nuvei | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `CONVERGENT` ¹ |
 | RoxPay | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `CONVERGENT` ¹ |
 | Stancer | `REJECTED` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `CONVERGENT` ¹ |
 | Stripe | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `VERIFIED` ² |
