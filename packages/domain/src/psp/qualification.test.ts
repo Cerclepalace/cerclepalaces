@@ -208,6 +208,71 @@ describe("un seul point manquant suffit à bloquer", () => {
     }
   });
 
+  it("un refus n'est un refus que s'il vient d'une source qui engage", () => {
+    // Le module déclare que quatre sources ne qualifient jamais. Il serait
+    // incohérent qu'elles disqualifient : un refus prononcé au téléphone
+    // n'engage pas plus son émetteur qu'une acceptation prononcée au
+    // téléphone. Le point reste bloqué — mais le dossier cesse d'affirmer que
+    // le prestataire a refusé.
+    for (const source of ["SALES_CALL", "MARKETING_PAGE", "SANDBOX_ACCESS", "TECHNICAL_DOCUMENTATION"] as const) {
+      const verdict = assessQualification(
+        dossierComplet({ answer: "NO", source }, "MODEL_B_ACCEPTED"),
+      );
+      expect(verdict.qualified, source).toBe(false);
+      if (verdict.qualified) return;
+      expect(verdict.blocking, source).toEqual([
+        { point: "MODEL_B_ACCEPTED", verdict: "NOT_BINDING" },
+      ]);
+    }
+  });
+
+  it("les quatre sources opposables rendent bien un refus", () => {
+    for (const source of ["WRITTEN_EMAIL", "SIGNED_CONTRACT", "OFFICIAL_LETTER", "MERCHANT_PORTAL_DECISION"] as const) {
+      const verdict = assessQualification(
+        dossierComplet({ answer: "NO", source }, "MODEL_B_ACCEPTED"),
+      );
+      expect(verdict.qualified, source).toBe(false);
+      if (verdict.qualified) return;
+      expect(verdict.blocking, source).toEqual([
+        { point: "MODEL_B_ACCEPTED", verdict: "REFUSED" },
+      ]);
+    }
+  });
+
+  it("un refus opposable reste un refus sans référence d'archive", () => {
+    // L'état exact des trois refus du registre. Ce qui leur manque se dit sur
+    // l'axe de preuve, pas dans le verdict — d'où l'ordre des contrôles.
+    const verdict = assessQualification(
+      dossierComplet({ answer: "NO", reference: null }, "MODEL_B_ACCEPTED"),
+    );
+    expect(verdict.qualified).toBe(false);
+    if (verdict.qualified) return;
+    expect(verdict.blocking).toEqual([{ point: "MODEL_B_ACCEPTED", verdict: "REFUSED" }]);
+  });
+
+  it("une absence de réponse ne reçoit aucune signification de source", () => {
+    // Un silence n'a pas d'émetteur. Lire la source d'une réponse qui n'existe
+    // pas reviendrait à lui en inventer un — et transformerait « personne n'a
+    // répondu » en « quelqu'un a répondu sans engagement ».
+    for (const source of ["SALES_CALL", "WRITTEN_EMAIL"] as const) {
+      const attente = assessQualification(
+        dossierComplet({ answer: "NO_ANSWER", source }, "MODEL_B_ACCEPTED"),
+      );
+      if (attente.qualified) return;
+      expect(attente.blocking, source).toEqual([
+        { point: "MODEL_B_ACCEPTED", verdict: "AWAITING_ANSWER" },
+      ]);
+
+      const jamaisDemandé = assessQualification(
+        dossierComplet({ answer: "UNKNOWN", source }, "MODEL_B_ACCEPTED"),
+      );
+      if (jamaisDemandé.qualified) return;
+      expect(jamaisDemandé.blocking, source).toEqual([
+        { point: "MODEL_B_ACCEPTED", verdict: "NOT_ASKED" },
+      ]);
+    }
+  });
+
   it("un refus explicite sur un seul point est bloquant", () => {
     const verdict = assessQualification(dossierComplet({ answer: "NO" }, "MODEL_B_ACCEPTED"));
     expect(verdict.qualified).toBe(false);

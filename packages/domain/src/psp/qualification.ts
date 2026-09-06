@@ -16,7 +16,9 @@
  *    et l'approbation de l'un ne renseigne pas l'autre.
  * 2. **Une capacité n'est pas une acceptation.** Une API marketplace
  *    documentée, un module KYC, un accès bac à sable : ce sont des fonctions
- *    vendues, pas un risque souscrit. Aucune ne peut répondre à un point.
+ *    vendues, pas un risque souscrit. Aucune ne peut répondre à un point — et,
+ *    symétriquement, aucune ne peut en fermer un : une source qui ne qualifie
+ *    jamais ne disqualifie pas davantage.
  * 3. **Le silence ne vaut pas oui.** `NO_ANSWER` et `UNKNOWN` sont des réponses
  *    distinctes — l'une signifie « nous avons demandé, rien n'est venu »,
  *    l'autre « nous n'avons pas demandé » — et ni l'une ni l'autre ne qualifie.
@@ -226,7 +228,14 @@ export function emptyQualification(providerName: string): ProviderQualification 
 export const POINT_VERDICTS = [
   "SATISFIED",
   "REFUSED",
-  /** Répondu favorablement, mais la réponse n'engage pas son émetteur. */
+  /**
+   * Répondu, mais la réponse n'engage pas son émetteur.
+   *
+   * Vaut pour un « oui » comme pour un « non » : une source qui ne qualifie
+   * jamais ne disqualifie pas davantage. Un refus prononcé au téléphone laisse
+   * le point bloqué — comme tout verdict non satisfait — sans être enregistré
+   * comme un refus du prestataire.
+   */
   "NOT_BINDING",
   /** Répondu « oui sous conditions » sans que les conditions soient écrites. */
   "CONDITIONS_MISSING",
@@ -259,11 +268,30 @@ function assessPoint(
   if (response === undefined) return { point, verdict: "NOT_ASKED" };
   if (response.answer === "UNKNOWN") return { point, verdict: "NOT_ASKED" };
   if (response.answer === "NO_ANSWER") return { point, verdict: "AWAITING_ANSWER" };
+
+  // À partir d'ici, une réponse a réellement été fournie, et sa source décrit
+  // donc quelque chose. Au-dessus, elle ne décrivait rien : un silence n'a pas
+  // d'émetteur, et lire sa source reviendrait à lui en inventer un.
+  //
+  // Le contrôle vient avant l'examen du contenu, dans les deux sens. Le module
+  // déclare que quatre sources ne qualifient jamais ; il serait incohérent
+  // qu'elles disqualifient. Un refus prononcé au téléphone n'engage pas plus
+  // son émetteur qu'une acceptation prononcée au téléphone, et l'enregistrer
+  // comme un refus du prestataire ferait exactement ce que ce registre existe
+  // pour empêcher : tenir pour établie une décision qui ne l'est pas.
+  //
+  // Rien ne se relâche au passage — `NOT_BINDING` bloque comme `REFUSED`. Ce
+  // qui change est ce que le dossier *dit*, jamais ce qu'il *décide*.
+  if (!isBindingSource(response.source)) return { point, verdict: "NOT_BINDING" };
+
+  // Un refus opposable clôt le point, archivé ou non : c'est délibérément
+  // au-dessus du contrôle de traçabilité. Les trois refus écrits du registre
+  // n'ont pas de référence d'archive, et restent des refus. Ce qui leur manque
+  // se dit sur l'axe de preuve, pas dans le verdict.
   if (response.answer === "NO") return { point, verdict: "REFUSED" };
 
-  // À partir d'ici la réponse est favorable. Reste à savoir si elle vaut
-  // quelque chose.
-  if (!isBindingSource(response.source)) return { point, verdict: "NOT_BINDING" };
+  // À partir d'ici la réponse est favorable et sa source engage. Reste à savoir
+  // si on peut la retrouver.
 
   if (
     response.answeredAt === null ||
