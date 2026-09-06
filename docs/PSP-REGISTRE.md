@@ -380,11 +380,42 @@ silence. C'est le contraire de ce que le registre est censé garantir.
 ### C-3 · `EVIDENCE_LEVEL` n'existe que dans le Markdown
 
 `ACTION REQUISE.` `VERIFIED` · `CONVERGENT` · `UNVERIFIED` est un axe imposé,
-tenu uniquement dans le tableau ci-dessus. `registre.ts` connaît `reference`
-— présente ou absente — ce qui ne distingue pas un refus daté sans archive
-(`CONVERGENT`) d'une page marketing (`UNVERIFIED`). Le tableau et le fichier
-typé peuvent donc diverger sur cet axe précis, alors que le fichier typé a été
-écrit pour empêcher exactement cela.
+tenu uniquement dans le tableau ci-dessus. Le tableau et le fichier typé peuvent
+donc diverger sur cet axe précis, alors que le fichier typé a été écrit pour
+empêcher exactement cela.
+
+**Diagnostic corrigé le 6 septembre 2026.** Cet écart attribuait le manque à
+l'absence d'un niveau de preuve dans les types. Le code dit autre chose, et la
+distinction change le remède.
+
+`assessQualification` évalue bien la traçabilité d'une réponse — source
+opposable, date, référence retrouvable — et rend `NOT_TRACEABLE` quand elle
+manque. Mais `assessPoint` **court-circuite avant d'y arriver** :
+
+```
+if (response.answer === "NO") return { point, verdict: "REFUSED" };
+```
+
+Un refus n'est donc **jamais examiné pour son opposabilité**. C'est pourquoi
+RoxPay et Stancer — refus établis, datés, mais sans référence d'archive — sont
+indistinguables, dans le code, d'un refus parfaitement documenté. Le manque
+n'est pas un vocabulaire absent : c'est une branche qui rend son verdict avant
+le contrôle.
+
+Ce court-circuit n'est pas nécessairement une faute. Un refus bloque qu'il soit
+archivé ou non, et le verdict est juste. Ce qui manque est la capacité de dire
+*pourquoi* on est bloqué — information manquante, ou archive manquante — et
+c'est cette information-là qui commande l'action suivante.
+
+**Non corrigé.** Toucher au verdict d'un refus est un changement du modèle de
+qualification : il demande son propre arbitrage, avec analyse d'impact sur les
+dix-sept points, les gates, le registre et le filet de conservation.
+
+L'arbitrage du 6 septembre 2026 a par ailleurs écarté l'ajout de `CONVERGENT`
+aux statuts de preuve **du catalogue** : pour une source juridique, « concordant
+mais non vérifié » est exactement ce que dit `UNVERIFIED` avec `verifiedBy`
+absent. Deux façons d'écrire un même état sont la mécanique par laquelle un
+registre dérive.
 
 ### C-4 · `PSP-DEMANDE-TYPE.md` se contredit sur sa propre règle
 

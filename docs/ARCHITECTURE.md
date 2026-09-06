@@ -49,7 +49,7 @@ duplication et sans dérive.
 
 **Cette phrase est désormais vérifiée à chaque exécution**, et non plus seulement
 écrite ici. `apps/api/src/architecture.guard.test.ts` lit le graphe réel des
-imports et gèle huit frontières que le code possède déjà :
+imports et gèle huit frontières que le code possède déjà — plus les deux règles du noyau :
 
 | Frontière | Ce qu'elle empêche |
 |---|---|
@@ -57,10 +57,39 @@ imports et gèle huit frontières que le code possède déjà :
 | Ses tests ne connaissent que `vitest` | Les mêmes, par la porte de service — une exception nommée près, justifiée |
 | Aucune règle ne dépend de `psp/` | Qu'une décision de catalogue soit conditionnée par un dossier commercial |
 | Aucune règle ne dépend de `ports/` | Qu'une règle métier dépende d'un contrat de fournisseur externe |
-| `psp/` ne dépend d'aucun autre module | Que la qualification d'un prestataire emprunte aux règles de la plateforme |
-| `catalog/` ne connaît que `compliance/` et `merchant/` | Qu'un portail de mise en vente aille chercher une commande ou un prix |
+| `psp/` ne dépend d'aucun module hors noyau | Que la qualification d'un prestataire emprunte aux règles de la plateforme |
+| `catalog/` ne connaît que `compliance/`, `merchant/` et le noyau | Qu'un portail de mise en vente aille chercher une commande ou un prix |
 | Aucun cycle | Un graphe où chaque module justifie l'autre |
 | `@cbd/db` reste à sa place | Que la base remonte dans un service ; chaque autorisation est nommée et motivée |
+
+### Le noyau
+
+Deux des frontières ci-dessus nomment un **noyau**. Il contient un seul fichier :
+
+```
+NOYAU = { roles.ts }
+```
+
+Ce n'est pas une conception, c'est un constat. `roles.ts` est déjà importé par
+`compliance/`, `delivery/`, `merchant/` et `order/`, et n'importe rien lui-même.
+Le noyau nomme un patron que le code possède depuis longtemps.
+
+Deux règles le tiennent fermé, toutes deux vérifiées :
+
+1. **Le noyau n'importe aucun module du domaine.** Un noyau qui dépendrait d'un
+   domaine métier ouvrirait un chemin entre tous les modules, par lui.
+2. **Un module n'y entre que par une décision écrite.** La liste est littérale
+   dans la garde : l'élargir est une ligne à ajouter, visible en revue.
+
+**Pourquoi elle doit rester courte.** Le noyau est la seule porte de sortie des
+deux frontières qui le mentionnent : tout ce qu'on y dépose devient
+universellement importable. Un noyau qui grossit redevient le `shared/`
+fourre-tout que ces frontières existent pour empêcher. Le jour où un module y
+entre « parce que c'est plus pratique », la garde a cessé de servir.
+
+`evidence/` — le mécanisme de preuve du catalogue, appelé à être partagé —
+n'y figure pas. Il y entrera lorsqu'il existera comme module, pas avant : une
+règle qui nomme un module absent ne se vérifie pas, elle se croit.
 
 La surface publique du package est elle aussi pointée : `index.ts` procède par
 `export *`, si bien qu'ajouter un module y élargit l'API sans qu'aucun autre

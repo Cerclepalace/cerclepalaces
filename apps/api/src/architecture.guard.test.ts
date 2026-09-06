@@ -158,6 +158,52 @@ describe("le domaine ne connaît rien du dehors", () => {
 // ---------------------------------------------------------------------------
 
 /**
+ * Le noyau : ce que tout module a le droit d'importer.
+ *
+ * **Un seul fichier y figure aujourd'hui, et c'est un constat, pas un choix de
+ * conception.** `roles.ts` est déjà importé par `compliance/`, `delivery/`,
+ * `merchant/` et `order/`, et n'importe rien lui-même. Le noyau ne crée donc
+ * aucune structure : il nomme un patron que le code possède depuis longtemps.
+ *
+ * Deux règles le tiennent fermé :
+ *
+ *  1. **Le noyau n'importe aucun module du domaine.** Un noyau qui dépendrait
+ *     d'un domaine métier créerait un chemin entre tous les modules, par lui.
+ *  2. **Un module n'y entre que par une décision écrite.** Cette liste est
+ *     littérale : l'élargir est une ligne à ajouter ici, visible en revue.
+ *
+ * **Pourquoi cette liste est courte, et doit le rester.** Le noyau est la seule
+ * porte de sortie des frontières `#5` et `#6` : tout ce qu'on y dépose devient
+ * universellement importable. Un noyau qui grossit redevient le `shared/`
+ * fourre-tout que ces frontières existent pour empêcher. Le jour où un module
+ * y entre « parce que c'est plus pratique », la garde a cessé de servir.
+ *
+ * `evidence/` y entrera lorsqu'il existera — pas avant. Une règle qui nomme un
+ * module absent ne se vérifie pas, elle se croit.
+ */
+const NOYAU = ["roles"] as const;
+
+/** Le noyau vit à la racine du package : ses modules ont un dossier vide. */
+const APPARTIENT_AU_NOYAU = (module: string, specificateur: string): boolean =>
+  module === "" &&
+  NOYAU.some((n) => specificateur === `./${n}.js` || specificateur.endsWith(`/${n}.js`));
+
+describe("le noyau reste fermé et minimal", () => {
+  it("ne contient que roles.ts", () => {
+    expect(NOYAU).toEqual(["roles"]);
+  });
+
+  it("n'importe aucun module du domaine", () => {
+    // Un noyau qui dépendrait d'un domaine métier ouvrirait un chemin entre
+    // tous les modules, par lui.
+    const fautifs = DOMAINE.filter(
+      (f) => !f.estTest && NOYAU.some((n) => f.chemin === `packages/domain/src/${n}.ts`),
+    ).flatMap((f) => f.imports.filter(estRelatif).map((i) => `${f.chemin} → ${i}`));
+    expect(fautifs).toEqual([]);
+  });
+});
+
+/**
  * Modules du domaine dont personne ne dépend, et qui doivent le rester.
  *
  * `psp/` porte l'état d'un dossier commercial — des faits datés, pas des
@@ -181,30 +227,40 @@ describe("les frontières internes du domaine", () => {
     });
   }
 
-  it("psp/ ne dépend d'aucun autre module du domaine", () => {
+  it("psp/ ne dépend d'aucun module hors noyau", () => {
     // La qualification d'un prestataire ne doit rien pouvoir emprunter au
     // catalogue, aux commandes ou aux livraisons : ce sont des décisions
     // externes, pas des règles de la plateforme.
-    const fautifs = DOMAINE.filter((f) => !f.estTest && f.module === "psp")
-      .flatMap((f) =>
-        f.imports
-          .filter((i) => estRelatif(i) && moduleVise(f.module, i) !== "psp")
-          .map((i) => `${f.chemin} → ${i}`),
-      );
+    const fautifs = DOMAINE.filter((f) => !f.estTest && f.module === "psp").flatMap((f) =>
+      f.imports
+        .filter(
+          (i) =>
+            estRelatif(i) &&
+            moduleVise(f.module, i) !== "psp" &&
+            !APPARTIENT_AU_NOYAU(moduleVise(f.module, i), i),
+        )
+        .map((i) => `${f.chemin} → ${i}`),
+    );
     expect(fautifs).toEqual([]);
   });
 
-  it("catalog/ ne dépend que de compliance/ et merchant/", () => {
+  it("catalog/ ne connaît que compliance/, merchant/ et le noyau", () => {
     // Le portail de mise en vente a besoin de l'état de conformité du produit et
     // de l'état du vendeur. Il n'a besoin de rien d'autre, et surtout pas d'une
     // commande, d'une livraison ni d'un prix.
-    const autorises = new Set(["catalog", "compliance", "merchant", ""]);
-    const fautifs = DOMAINE.filter((f) => !f.estTest && f.module === "catalog")
-      .flatMap((f) =>
-        f.imports
-          .filter((i) => estRelatif(i) && !autorises.has(moduleVise(f.module, i)))
-          .map((i) => `${f.chemin} → ${i}`),
-      );
+    // La racine du package n'est plus autorisée en bloc : seul le noyau l'est.
+    // Un fichier racine hors noyau redeviendrait importable par tout le monde.
+    const autorises = new Set(["catalog", "compliance", "merchant"]);
+    const fautifs = DOMAINE.filter((f) => !f.estTest && f.module === "catalog").flatMap((f) =>
+      f.imports
+        .filter(
+          (i) =>
+            estRelatif(i) &&
+            !autorises.has(moduleVise(f.module, i)) &&
+            !APPARTIENT_AU_NOYAU(moduleVise(f.module, i), i),
+        )
+        .map((i) => `${f.chemin} → ${i}`),
+    );
     expect(fautifs).toEqual([]);
   });
 
